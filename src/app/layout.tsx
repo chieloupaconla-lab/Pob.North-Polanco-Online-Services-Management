@@ -14,7 +14,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Barangay Poblacion North | Official Online Services Portal",
-  description: "Integrated Web-Based Barangay Services Management System for Barangay Poblacion North, Polanco, Zamboanga del Norte. Online document requests, Complaints, and equipment borrowing & returning.",
+  description:
+    "Integrated Web-Based Barangay Services Management System for Barangay Poblacion North, Polanco, Zamboanga del Norte. Online document requests, Complaints, and equipment borrowing & returning.",
+  verification: {
+    google: "3-L_aYRpOeTCqnwA_ljFNqDNFVSBrU7t6Q1gthGMnVk",
+  },
 };
 
 export default function RootLayout({
@@ -27,8 +31,9 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900 font-sans">{children}</body>
+      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900 font-sans">
+        {children}
+      </body>
     </html>
   );
 }
-
