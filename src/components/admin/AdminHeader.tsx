@@ -1,123 +1,149 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   Bell,
   ChevronDown,
-  Menu,
-  X,
-  FileText,
-  AlertTriangle,
-  Package,
   Home,
+  Menu,
+  Settings,
+  FileText,
+  MessageSquare,
+  Package,
+  Users,
+  X,
 } from "lucide-react";
 
 interface AdminHeaderProps {
-  onToggleMobileSidebar?: () => void;
-  mobileSidebarOpen?: boolean;
   pathname: string;
+  mobileSidebarOpen?: boolean;
+  onToggleMobileSidebar?: () => void;
 }
 
 const pageLabels: Record<string, string> = {
   "/admin": "Dashboard",
   "/admin/documents": "Document Requests",
-  "/admin/complaints": "Complaints",
-  "/admin/assets": "Asset Borrowing",
+  "/admin/complaints": "Facility Concerns",
+  "/admin/assets": "Equipment Borrowing",
+  "/admin/users": "Users",
+  "/admin/settings": "Settings",
 };
 
-const moduleIcons: Record<string, React.ElementType> = {
+const moduleIcons: Record<string, typeof Home> = {
   "/admin": Home,
   "/admin/documents": FileText,
-  "/admin/complaints": AlertTriangle,
+  "/admin/complaints": MessageSquare,
   "/admin/assets": Package,
+  "/admin/users": Users,
+  "/admin/settings": Settings,
 };
 
 export default function AdminHeader({
-  onToggleMobileSidebar,
-  mobileSidebarOpen = false,
   pathname,
+  mobileSidebarOpen,
+  onToggleMobileSidebar,
 }: AdminHeaderProps) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const router = usePathname();
 
-  const currentPage = pageLabels[router] || "Admin";
-  const CurrentIcon = moduleIcons[router] || Home;
+  const currentPage = pageLabels[pathname] || "Admin";
+  const CurrentIcon = moduleIcons[pathname] || Home;
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-2xs transition-all">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 sm:h-16">
-          <div className="flex items-center gap-3 lg:hidden">
-            <button
-              onClick={onToggleMobileSidebar}
-              type="button"
-              className="p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 focus:outline-none transition-colors"
-              aria-label="Toggle navigation menu"
-            >
-              {mobileSidebarOpen ? (
-                <X className="w-6 h-6 text-[#6D3FE7]" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
-            </button>
+    <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-gray-200 bg-white px-4 shadow-sm sm:px-6">
+      <div className="flex items-center gap-3">
+        {onToggleMobileSidebar && (
+          <button
+            type="button"
+            onClick={onToggleMobileSidebar}
+            className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 lg:hidden"
+            aria-label={
+              mobileSidebarOpen ? "Close navigation menu" : "Open navigation menu"
+            }
+          >
+            {mobileSidebarOpen ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Menu className="h-5 w-5" />
+            )}
+          </button>
+        )}
+
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+            <CurrentIcon className="h-5 w-5" />
           </div>
 
-          <div className="flex items-center gap-3">
-            <CurrentIcon className="w-5 h-5 text-[#6D3FE7] hidden sm:block" />
-            <div>
-              <h1 className="text-sm sm:text-base font-bold text-[#17213A] tracking-tight">
-                {currentPage}
-              </h1>
-              <p className="hidden sm:block text-[10px] text-[#6B7280]">
-                Barangay Poblacion North, Polanco
-              </p>
-            </div>
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">
+              {currentPage}
+            </h1>
+
+            <p className="hidden text-xs text-gray-500 sm:block">
+              Barangay Poblacion North Administration
+            </p>
           </div>
+        </div>
+      </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setNotificationsOpen(!notificationsOpen);
-                }}
-                type="button"
-                className="relative p-2.5 rounded-xl text-slate-600 hover:text-[#6D3FE7] hover:bg-[#F0EAFF]/50 focus:outline-none transition-colors"
-                aria-label="View notifications"
-              >
-                <Bell className="w-5 h-5" />
-              </button>
+      <div className="flex items-center gap-2">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setNotificationsOpen(!notificationsOpen)}
+            className="relative rounded-lg p-2 text-gray-600 hover:bg-gray-100"
+            aria-label="Notifications"
+          >
+            <Bell className="h-5 w-5" />
 
-              {notificationsOpen && (
-                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
-                    <span className="font-bold text-sm text-[#17213A]">Notifications</span>
-                    <button
-                      onClick={() => setNotificationsOpen(false)}
-                      className="text-xs text-[#6D3FE7] font-semibold hover:underline"
-                    >
-                      Close
-                    </button>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 px-4 py-2">
-                    <p className="text-xs text-[#6B7280] text-center py-4">
-                      No notifications at this time.
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
+            <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-red-500" />
+          </button>
 
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#6D3FE7] to-indigo-800 flex items-center justify-center text-white text-xs font-extrabold">
-                AD
+          {notificationsOpen && (
+            <div className="absolute right-0 top-12 w-80 rounded-xl border border-gray-200 bg-white p-4 shadow-lg">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900">
+                  Notifications
+                </h3>
+
+                <button
+                  type="button"
+                  onClick={() => setNotificationsOpen(false)}
+                  className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  aria-label="Close notifications"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <div className="hidden sm:block">
-                <div className="text-xs font-bold text-[#17213A]">Admin</div>
-                <div className="text-[10px] text-[#6B7280]">Barangay Personnel</div>
+
+              <div className="rounded-lg bg-gray-50 p-3">
+                <p className="text-sm font-medium text-gray-800">
+                  New service requests
+                </p>
+
+                <p className="mt-1 text-xs text-gray-500">
+                  Check the admin dashboard for pending requests.
+                </p>
               </div>
-              <ChevronDown className="w-4 h-4 text-slate-400 hidden sm:block" />
             </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 border-l border-gray-200 pl-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">
+            A
           </div>
+
+          <div className="hidden sm:block">
+            <p className="text-sm font-medium text-gray-900">
+              Administrator
+            </p>
+
+            <p className="text-xs text-gray-500">
+              Barangay Admin
+            </p>
+          </div>
+
+          <ChevronDown className="hidden h-4 w-4 text-gray-400 sm:block" />
         </div>
       </div>
     </header>

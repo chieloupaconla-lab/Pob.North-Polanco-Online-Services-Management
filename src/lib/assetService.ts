@@ -14,12 +14,19 @@ function now(): Date {
   return new Date();
 }
 
-function getBorrowings(): AssetBorrowRequest[] {
+/**
+ * Load borrowing requests from localStorage.
+ * This is an internal helper and is intentionally synchronous.
+ */
+function loadBorrowings(): AssetBorrowRequest[] {
   if (typeof window === "undefined") return [];
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+
     if (raw) {
       const parsed = JSON.parse(raw) as AssetBorrowRequest[];
+
       return parsed.map((r) => ({
         ...r,
         borrowDate: new Date(r.borrowDate),
@@ -32,18 +39,21 @@ function getBorrowings(): AssetBorrowRequest[] {
       }));
     }
   } catch {
-    // ignore
+    // Ignore invalid localStorage data.
   }
+
   return [];
 }
 
 function saveBorrowings(borrowings: AssetBorrowRequest[]): void {
   if (typeof window === "undefined") return;
+
   localStorage.setItem(STORAGE_KEY, JSON.stringify(borrowings));
 }
 
 function seedData(): void {
-  const existing = getBorrowings();
+  const existing = loadBorrowings();
+
   if (existing.length > 0) return;
 
   const seed: AssetBorrowRequest[] = [
@@ -108,17 +118,27 @@ function seedData(): void {
 
 export async function getBorrowings(): Promise<AssetBorrowRequest[]> {
   seedData();
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  return getBorrowings().sort(
-    (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+  const borrowings = loadBorrowings();
+
+  return borrowings.sort(
+    (a: AssetBorrowRequest, b: AssetBorrowRequest) =>
+      b.createdAt.getTime() - a.createdAt.getTime()
   );
 }
 
 export async function getBorrowingById(
   id: string
 ): Promise<AssetBorrowRequest | null> {
-  const borrowings = getBorrowings();
-  return borrowings.find((r) => r.id === id) || null;
+  const borrowings = loadBorrowings();
+
+  return (
+    borrowings.find(
+      (r: AssetBorrowRequest) => r.id === id
+    ) || null
+  );
 }
 
 export async function createBorrowing(
@@ -134,9 +154,13 @@ export async function createBorrowing(
     createdAt: now(),
     updatedAt: now(),
   };
-  const borrowings = getBorrowings();
+
+  const borrowings = loadBorrowings();
+
   borrowings.unshift(borrowing);
+
   saveBorrowings(borrowings);
+
   return borrowing;
 }
 
@@ -145,9 +169,15 @@ export async function updateBorrowingStatus(
   status: AssetStatus,
   adminNotes?: string
 ): Promise<AssetBorrowRequest> {
-  const borrowings = getBorrowings();
-  const index = borrowings.findIndex((r) => r.id === id);
-  if (index === -1) throw new Error("Borrowing request not found");
+  const borrowings = loadBorrowings();
+
+  const index = borrowings.findIndex(
+    (r: AssetBorrowRequest) => r.id === id
+  );
+
+  if (index === -1) {
+    throw new Error("Borrowing request not found");
+  }
 
   borrowings[index] = {
     ...borrowings[index],
@@ -155,7 +185,9 @@ export async function updateBorrowingStatus(
     adminNotes: adminNotes ?? borrowings[index].adminNotes,
     updatedAt: now(),
   };
+
   saveBorrowings(borrowings);
+
   return borrowings[index];
 }
 
@@ -169,9 +201,15 @@ export async function updateBorrowingReturnInfo(
     penalty?: number;
   }
 ): Promise<AssetBorrowRequest> {
-  const borrowings = getBorrowings();
-  const index = borrowings.findIndex((r) => r.id === id);
-  if (index === -1) throw new Error("Borrowing request not found");
+  const borrowings = loadBorrowings();
+
+  const index = borrowings.findIndex(
+    (r: AssetBorrowRequest) => r.id === id
+  );
+
+  if (index === -1) {
+    throw new Error("Borrowing request not found");
+  }
 
   borrowings[index] = {
     ...borrowings[index],
@@ -182,7 +220,9 @@ export async function updateBorrowingReturnInfo(
     penalty: data.penalty,
     updatedAt: now(),
   };
+
   saveBorrowings(borrowings);
+
   return borrowings[index];
 }
 

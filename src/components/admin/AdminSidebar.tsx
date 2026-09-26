@@ -45,7 +45,7 @@ const secondaryNavItems: {
   icon: React.ElementType;
 }[] = [
   { id: "barangay-info", label: "Barangay Information", href: "/info", icon: Info },
-  { id: "settings", label: "Settings", href: "/admin" icon: Settings },
+  { id: "settings", label: "Settings", href: "/admin", icon: Settings },
 ];
 
 export default function AdminSidebar({

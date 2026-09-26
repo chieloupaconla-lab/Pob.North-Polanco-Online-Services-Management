@@ -14,12 +14,19 @@ function now(): Date {
   return new Date();
 }
 
-function getComplaints(): ComplaintRequest[] {
+/**
+ * Load complaints from localStorage.
+ * This is an internal helper and is intentionally synchronous.
+ */
+function loadComplaints(): ComplaintRequest[] {
   if (typeof window === "undefined") return [];
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+
     if (raw) {
       const parsed = JSON.parse(raw) as ComplaintRequest[];
+
       return parsed.map((r) => ({
         ...r,
         createdAt: new Date(r.createdAt),
@@ -27,18 +34,21 @@ function getComplaints(): ComplaintRequest[] {
       }));
     }
   } catch {
-    // ignore
+    // Ignore invalid localStorage data.
   }
+
   return [];
 }
 
 function saveComplaints(complaints: ComplaintRequest[]): void {
   if (typeof window === "undefined") return;
+
   localStorage.setItem(STORAGE_KEY, JSON.stringify(complaints));
 }
 
 function seedData(): void {
-  const existing = getComplaints();
+  const existing = loadComplaints();
+
   if (existing.length > 0) return;
 
   const seed: ComplaintRequest[] = [
@@ -87,17 +97,27 @@ function seedData(): void {
 
 export async function getComplaints(): Promise<ComplaintRequest[]> {
   seedData();
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  return getComplaints().sort(
-    (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+  const complaints = loadComplaints();
+
+  return complaints.sort(
+    (a: ComplaintRequest, b: ComplaintRequest) =>
+      b.createdAt.getTime() - a.createdAt.getTime()
   );
 }
 
 export async function getComplaintById(
   id: string
 ): Promise<ComplaintRequest | null> {
-  const complaints = getComplaints();
-  return complaints.find((r) => r.id === id) || null;
+  const complaints = loadComplaints();
+
+  return (
+    complaints.find(
+      (r: ComplaintRequest) => r.id === id
+    ) || null
+  );
 }
 
 export async function createComplaint(
@@ -111,9 +131,13 @@ export async function createComplaint(
     createdAt: now(),
     updatedAt: now(),
   };
-  const complaints = getComplaints();
+
+  const complaints = loadComplaints();
+
   complaints.unshift(complaint);
+
   saveComplaints(complaints);
+
   return complaint;
 }
 
@@ -122,9 +146,15 @@ export async function updateComplaintStatus(
   status: ComplaintStatus,
   adminNotes?: string
 ): Promise<ComplaintRequest> {
-  const complaints = getComplaints();
-  const index = complaints.findIndex((r) => r.id === id);
-  if (index === -1) throw new Error("Complaint not found");
+  const complaints = loadComplaints();
+
+  const index = complaints.findIndex(
+    (r: ComplaintRequest) => r.id === id
+  );
+
+  if (index === -1) {
+    throw new Error("Complaint not found");
+  }
 
   complaints[index] = {
     ...complaints[index],
@@ -132,7 +162,9 @@ export async function updateComplaintStatus(
     adminNotes: adminNotes ?? complaints[index].adminNotes,
     updatedAt: now(),
   };
+
   saveComplaints(complaints);
+
   return complaints[index];
 }
 
