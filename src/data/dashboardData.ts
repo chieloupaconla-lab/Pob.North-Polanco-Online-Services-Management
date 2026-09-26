@@ -1,6 +1,3 @@
-// Dashboard data
-// Kept compatible with the existing dashboard components.
-
 export const SERVICE_CARDS_DATA = [
   {
     id: "documents",
