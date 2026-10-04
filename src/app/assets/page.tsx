@@ -282,19 +282,13 @@ export default function AssetsPage() {
             </div>
 
             <div>
-              <p className="text-sm font-semibold text-violet-100">
-                Barangay Poblacion North
-              </p>
+             
 
               <h1 className="mt-1 text-2xl font-bold sm:text-3xl">
                 Asset Borrowing and Returning
               </h1>
 
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-violet-100">
-                Submit a request to borrow barangay-owned equipment
-                and provide the required witness or checker
-                information.
-              </p>
+             
             </div>
           </div>
         </section>

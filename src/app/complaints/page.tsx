@@ -7,21 +7,24 @@ import {
   ArrowLeft,
   Bell,
   CheckCircle2,
+  Home,
+  Image as ImageIcon,
   MapPin,
   Send,
   ShieldCheck,
   User,
-  Home,
-  Image as ImageIcon,
 } from "lucide-react";
+
 import {
   addDoc,
   collection,
+  doc,
   serverTimestamp,
   updateDoc,
-  doc,
 } from "firebase/firestore";
+
 import { db, storage } from "@/lib/firebase";
+
 import {
   getDownloadURL,
   ref,
@@ -63,12 +66,6 @@ function generateComplaintTrackingCode() {
 
   return result;
 }
-
-/*
- * ============================================================
- * FAST IMAGE COMPRESSION
- * ============================================================
- */
 
 async function compressImage(file: File): Promise<File> {
   return new Promise((resolve, reject) => {
@@ -141,15 +138,14 @@ async function compressImage(file: File): Promise<File> {
               return;
             }
 
-            const compressedFile =
-              new File(
-                [blob],
-                `complaint-${Date.now()}.jpg`,
-                {
-                  type: "image/jpeg",
-                  lastModified: Date.now(),
-                }
-              );
+            const compressedFile = new File(
+              [blob],
+              `complaint-${Date.now()}.jpg`,
+              {
+                type: "image/jpeg",
+                lastModified: Date.now(),
+              }
+            );
 
             resolve(compressedFile);
           },
@@ -225,12 +221,6 @@ export default function ComplaintsPage() {
     }));
   };
 
-  /*
-   * ============================================================
-   * IMAGE SELECTION
-   * ============================================================
-   */
-
   const handleEvidenceChange = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -278,12 +268,6 @@ export default function ComplaintsPage() {
     );
   };
 
-  /*
-   * ============================================================
-   * SUBMIT
-   * ============================================================
-   */
-
   const handleSubmit = async (
     event: FormEvent<HTMLFormElement>
   ) => {
@@ -302,10 +286,6 @@ export default function ComplaintsPage() {
 
     const cleanLocation =
       formData.locationOfConcern.trim();
-
-    /*
-     * VALIDATION
-     */
 
     if (
       formData.submissionType ===
@@ -340,10 +320,6 @@ export default function ComplaintsPage() {
       return;
     }
 
-    /*
-     * START SUBMISSION
-     */
-
     try {
       setSubmitting(true);
 
@@ -354,91 +330,69 @@ export default function ComplaintsPage() {
           : "";
 
       /*
-       * SAVE COMPLAINT FIRST
+       * STEP 1:
+       * CREATE THE COMPLAINT
        */
 
-      const complaintRef = await addDoc(
-        collection(db, "complaints"),
-        {
-          submissionType:
-            formData.submissionType,
+      const complaintRef =
+        await addDoc(
+          collection(db, "complaints"),
+          {
+            submissionType:
+              formData.submissionType,
 
-          fullName:
-            formData.submissionType ===
-            "Anonymous"
-              ? ""
-              : cleanName,
+            fullName:
+              formData.submissionType ===
+              "Anonymous"
+                ? ""
+                : cleanName,
 
-          purokStreet:
-            formData.submissionType ===
-            "Anonymous"
-              ? ""
-              : cleanPurokStreet,
+            purokStreet:
+              formData.submissionType ===
+              "Anonymous"
+                ? ""
+                : cleanPurokStreet,
 
-          category:
-            formData.category,
+            category:
+              formData.category,
 
-          description:
-            cleanDescription,
+            description:
+              cleanDescription,
 
-          locationOfConcern:
-            cleanLocation,
+            locationOfConcern:
+              cleanLocation,
 
-          incidentDate:
-            formData.incidentDate,
+            incidentDate:
+              formData.incidentDate,
 
-          evidenceUrl: "",
+            evidenceUrl: "",
 
-          status: "Pending",
+            evidenceUploadStatus:
+              evidenceFile
+                ? "Uploading"
+                : "No Photo",
 
-          trackingCode,
+            status: "Pending",
 
-          adminNotes: "",
+            trackingCode,
 
-          assignedTo: "",
+            adminNotes: "",
 
-          evidenceUploadStatus:
-            evidenceFile
-              ? "Uploading"
-              : "No Photo",
+            assignedTo: "",
 
-          createdAt:
-            serverTimestamp(),
+            createdAt:
+              serverTimestamp(),
 
-          updatedAt:
-            serverTimestamp(),
+            updatedAt:
+              serverTimestamp(),
 
-          resolvedAt: null,
-        }
-      );
-
-      /*
-       * COMPLAINT IS NOW SAVED
-       */
-
-      setSubmittedTrackingCode(
-        trackingCode
-      );
-
-      setSubmitted(true);
-
-      setFormData({
-        submissionType:
-          "Provide My Name",
-        fullName: "",
-        purokStreet: "",
-        category:
-          "Community Concern",
-        description: "",
-        locationOfConcern: "",
-        incidentDate: "",
-      });
-
-      setEvidenceFile(null);
-      setImageSize("");
+            resolvedAt: null,
+          }
+        );
 
       /*
-       * PHOTO UPLOAD
+       * STEP 2:
+       * UPLOAD PHOTO BEFORE SUCCESS SCREEN
        */
 
       if (evidenceFile) {
@@ -457,29 +411,16 @@ export default function ComplaintsPage() {
             compressedFile.size >
             MAX_COMPRESSED_SIZE
           ) {
-            await updateDoc(
-              doc(
-                db,
-                "complaints",
-                complaintRef.id
-              ),
-              {
-                evidenceUploadStatus:
-                  "Failed - Image Too Large",
-
-                updatedAt:
-                  serverTimestamp(),
-              }
+            throw new Error(
+              "The compressed image is still too large. Please choose a smaller photo."
             );
-
-            setUploadingImage(false);
-            return;
           }
 
-          const storageRef = ref(
-            storage,
-            `complaint-evidence/${complaintRef.id}.jpg`
-          );
+          const storageRef =
+            ref(
+              storage,
+              `complaint-evidence/${complaintRef.id}.jpg`
+            );
 
           await uploadBytes(
             storageRef,
@@ -494,6 +435,17 @@ export default function ComplaintsPage() {
               storageRef
             );
 
+          if (!evidenceUrl) {
+            throw new Error(
+              "Firebase did not return an image URL."
+            );
+          }
+
+          /*
+           * STEP 3:
+           * SAVE PHOTO URL TO FIRESTORE
+           */
+
           await updateDoc(
             doc(
               db,
@@ -502,17 +454,15 @@ export default function ComplaintsPage() {
             ),
             {
               evidenceUrl,
-
               evidenceUploadStatus:
                 "Uploaded",
-
               updatedAt:
                 serverTimestamp(),
             }
           );
         } catch (imageError) {
           console.error(
-            "Background image upload error:",
+            "Complaint image upload error:",
             imageError
           );
 
@@ -526,7 +476,6 @@ export default function ComplaintsPage() {
               {
                 evidenceUploadStatus:
                   "Failed",
-
                 updatedAt:
                   serverTimestamp(),
               }
@@ -537,10 +486,39 @@ export default function ComplaintsPage() {
               updateError
             );
           }
+
+          throw new Error(
+            "Your complaint was created, but the photo could not be uploaded. Please check your photo and try again."
+          );
         } finally {
           setUploadingImage(false);
         }
       }
+
+      /*
+       * STEP 4:
+       * SHOW SUCCESS
+       */
+
+      setSubmittedTrackingCode(
+        trackingCode
+      );
+
+      setFormData({
+        submissionType:
+          "Provide My Name",
+        fullName: "",
+        purokStreet: "",
+        category:
+          "Community Concern",
+        description: "",
+        locationOfConcern: "",
+        incidentDate: "",
+      });
+
+      setEvidenceFile(null);
+      setImageSize("");
+      setSubmitted(true);
     } catch (error) {
       console.error(
         "Complaint submission error:",
@@ -548,31 +526,26 @@ export default function ComplaintsPage() {
       );
 
       setErrorMessage(
-        "Something went wrong while submitting your concern. Please try again."
+        error instanceof Error
+          ? error.message
+          : "Something went wrong while submitting your concern. Please try again."
       );
 
+      setSubmitted(false);
+    } finally {
       setSubmitting(false);
-      return;
+      setUploadingImage(false);
     }
-
-    setSubmitting(false);
   };
-
-  /*
-   * ============================================================
-   * SUCCESS SCREEN
-   * ============================================================
-   */
 
   if (submitted) {
     return (
       <main className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 px-4 py-8">
         <div className="mx-auto max-w-2xl">
 
-          {/* Back Button */}
           <Link
             href="/"
-            className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-purple-700 transition hover:text-purple-900"
+            className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-purple-700 hover:text-purple-900"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Home
@@ -599,7 +572,6 @@ export default function ComplaintsPage() {
               submission.
             </p>
 
-            {/* Anonymous Tracking Code */}
             {submittedTrackingCode && (
               <div className="mt-6 rounded-2xl border border-purple-200 bg-purple-50 p-5">
 
@@ -617,54 +589,38 @@ export default function ComplaintsPage() {
 
                 <p className="mt-3 text-xs leading-5 text-purple-700">
                   Save this code somewhere safe.
-                  Because your complaint was
-                  submitted anonymously, this code
-                  is required to find your complaint
-                  on the Notifications page.
+                  You will need it to find your
+                  anonymous complaint.
                 </p>
 
               </div>
             )}
 
-            {/* Photo Upload Information */}
-            {evidenceFile && (
-              <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-left">
+            <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-5 text-left">
 
-                <div className="flex items-start gap-3">
+              <div className="flex items-start gap-3">
 
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100">
-                    <ImageIcon className="h-5 w-5 text-blue-600" />
-                  </div>
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-100">
+                  <ImageIcon className="h-5 w-5 text-green-600" />
+                </div>
 
-                  <div>
-                    <p className="text-sm font-bold text-gray-900">
-                      Photo evidence is uploading
-                    </p>
+                <div>
+                  <p className="text-sm font-bold text-gray-900">
+                    Submission saved successfully
+                  </p>
 
-                    <p className="mt-1 text-xs leading-5 text-gray-600">
-                      Your complaint has already
-                      been submitted. The photo is
-                      being uploaded separately and
-                      will be attached to your
-                      complaint when finished.
-                    </p>
-
-                    {uploadingImage && (
-                      <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-blue-700">
-                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
-                        Uploading photo...
-                      </div>
-                    )}
-
-                  </div>
-
+                  <p className="mt-1 text-sm leading-6 text-gray-600">
+                    Your complaint information and
+                    supporting photo have been
+                    processed successfully.
+                  </p>
                 </div>
 
               </div>
-            )}
 
-            {/* Central Notification Tracking */}
-            <div className="mt-7 rounded-2xl border border-purple-200 bg-purple-50 p-5 text-left">
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-purple-200 bg-purple-50 p-5 text-left">
 
               <div className="flex items-start gap-3">
 
@@ -674,43 +630,26 @@ export default function ComplaintsPage() {
 
                 <div>
                   <p className="text-sm font-bold text-gray-900">
-                    Track your request through Notifications
+                    Track your request
                   </p>
 
                   <p className="mt-1 text-sm leading-6 text-gray-600">
-                    You do not need to check this
-                    complaint page again. Open the
-                    notification bell to view the
-                    current progress of your concern
+                    Open Notifications to view
+                    the progress of your complaint
                     together with your other barangay
                     requests.
                   </p>
-
-                  {submittedTrackingCode ? (
-                    <p className="mt-3 text-xs font-medium text-purple-700">
-                      Anonymous complaint:
-                      use your private tracking code
-                      on the Notifications page.
-                    </p>
-                  ) : (
-                    <p className="mt-3 text-xs font-medium text-purple-700">
-                      Named complaint:
-                      use the same Full Name and
-                      Purok/Street you submitted.
-                    </p>
-                  )}
                 </div>
 
               </div>
 
             </div>
 
-            {/* Buttons */}
             <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:justify-center">
 
               <Link
                 href="/notifications"
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3 font-semibold text-white transition hover:bg-purple-700"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3 font-semibold text-white hover:bg-purple-700"
               >
                 <Bell className="h-5 w-5" />
                 Open Notifications
@@ -718,7 +657,7 @@ export default function ComplaintsPage() {
 
               <Link
                 href="/"
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 font-semibold text-gray-700 transition hover:bg-gray-50"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 font-semibold text-gray-700 hover:bg-gray-50"
               >
                 <Home className="h-5 w-5" />
                 Back to Home
@@ -732,20 +671,13 @@ export default function ComplaintsPage() {
     );
   }
 
-  /*
-   * ============================================================
-   * MAIN PAGE
-   * ============================================================
-   */
-
   return (
     <main className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 px-4 py-8">
       <div className="mx-auto max-w-3xl">
 
-        {/* Back Button */}
         <Link
           href="/"
-          className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-purple-700 transition hover:text-purple-900"
+          className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-purple-700 hover:text-purple-900"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Home
@@ -753,7 +685,6 @@ export default function ComplaintsPage() {
 
         <div className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-purple-100">
 
-          {/* Header */}
           <div className="bg-gradient-to-r from-purple-700 to-indigo-700 px-6 py-8 text-white sm:px-8">
 
             <div className="flex items-start gap-4">
@@ -763,20 +694,14 @@ export default function ComplaintsPage() {
               </div>
 
               <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-purple-200">
-                  Community Service
-                </p>
-
-                <h1 className="mt-1 text-2xl font-bold">
+                <h1 className="text-2xl font-bold">
                   Community Concern
                 </h1>
 
-                <p className="mt-2 text-sm leading-6 text-purple-100">
-                  Report damaged public facilities,
-                  road or drainage problems,
-                  streetlight issues, and other
-                  community concerns in Barangay
-                  Poblacion North.
+                <p className="mt-1 text-sm text-purple-100">
+                  Report a community concern or
+                  public issue to Barangay Poblacion
+                  North.
                 </p>
               </div>
 
@@ -789,7 +714,6 @@ export default function ComplaintsPage() {
             className="space-y-7 p-6 sm:p-8"
           >
 
-            {/* Submission Type */}
             <div>
 
               <h2 className="text-lg font-bold text-gray-900">
@@ -873,12 +797,12 @@ export default function ComplaintsPage() {
 
             </div>
 
-            {/* Name + Purok */}
             {formData.submissionType ===
               "Provide My Name" && (
               <div className="grid gap-5 sm:grid-cols-2">
 
                 <div>
+
                   <label className="mb-2 block text-sm font-semibold text-gray-700">
                     Full Name{" "}
                     <span className="text-red-500">
@@ -898,11 +822,13 @@ export default function ComplaintsPage() {
                     placeholder="Enter your full name"
                     required
                     disabled={submitting}
-                    className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
                   />
+
                 </div>
 
                 <div>
+
                   <label className="mb-2 block text-sm font-semibold text-gray-700">
                     Purok / Street{" "}
                     <span className="text-red-500">
@@ -922,19 +848,14 @@ export default function ComplaintsPage() {
                     placeholder="Example: Purok 2"
                     required
                     disabled={submitting}
-                    className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
                   />
 
-                  <p className="mt-2 text-xs text-gray-500">
-                    This is used only to help locate
-                    your request through Notifications.
-                  </p>
                 </div>
 
               </div>
             )}
 
-            {/* Category */}
             <div>
 
               <label className="mb-2 block text-sm font-semibold text-gray-700">
@@ -950,21 +871,22 @@ export default function ComplaintsPage() {
                   )
                 }
                 disabled={submitting}
-                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
               >
-                {categories.map((category) => (
-                  <option
-                    key={category}
-                    value={category}
-                  >
-                    {category}
-                  </option>
-                ))}
+                {categories.map(
+                  (category) => (
+                    <option
+                      key={category}
+                      value={category}
+                    >
+                      {category}
+                    </option>
+                  )
+                )}
               </select>
 
             </div>
 
-            {/* Description */}
             <div>
 
               <label className="mb-2 block text-sm font-semibold text-gray-700">
@@ -986,26 +908,29 @@ export default function ComplaintsPage() {
                 required
                 disabled={submitting}
                 placeholder="Describe the concern or problem..."
-                className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+                className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
               />
 
             </div>
 
-            {/* Location */}
             <div>
 
               <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+
                 <MapPin className="h-4 w-4 text-purple-600" />
 
                 Exact Location of Concern{" "}
                 <span className="text-red-500">
                   *
                 </span>
+
               </label>
 
               <input
                 type="text"
-                value={formData.locationOfConcern}
+                value={
+                  formData.locationOfConcern
+                }
                 onChange={(event) =>
                   handleChange(
                     "locationOfConcern",
@@ -1015,12 +940,11 @@ export default function ComplaintsPage() {
                 placeholder="Example: Near Barangay Hall, Purok 2"
                 required
                 disabled={submitting}
-                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
               />
 
             </div>
 
-            {/* Incident Date */}
             <div>
 
               <label className="mb-2 block text-sm font-semibold text-gray-700">
@@ -1029,7 +953,9 @@ export default function ComplaintsPage() {
 
               <input
                 type="date"
-                value={formData.incidentDate}
+                value={
+                  formData.incidentDate
+                }
                 onChange={(event) =>
                   handleChange(
                     "incidentDate",
@@ -1037,12 +963,11 @@ export default function ComplaintsPage() {
                   )
                 }
                 disabled={submitting}
-                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
               />
 
             </div>
 
-            {/* Evidence */}
             <div>
 
               <label className="mb-2 block text-sm font-semibold text-gray-700">
@@ -1076,14 +1001,20 @@ export default function ComplaintsPage() {
 
                     <p className="mt-1 text-xs text-purple-600">
                       Photos are automatically
-                      reduced to a smaller JPEG for
-                      faster upload.
+                      compressed before uploading.
                     </p>
 
                     {imageSize && (
                       <p className="mt-2 text-xs font-medium text-gray-600">
                         {imageSize}
                       </p>
+                    )}
+
+                    {uploadingImage && (
+                      <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-purple-700">
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-purple-200 border-t-purple-600" />
+                        Uploading photo...
+                      </div>
                     )}
 
                   </div>
@@ -1094,7 +1025,6 @@ export default function ComplaintsPage() {
 
             </div>
 
-            {/* Privacy */}
             <div className="rounded-2xl bg-gray-50 p-4 text-sm text-gray-600">
 
               {formData.submissionType ===
@@ -1105,12 +1035,9 @@ export default function ComplaintsPage() {
 
                   <p>
                     Your identity will not be
-                    recorded. After submission, you
-                    will receive a private tracking
-                    code. Keep the code safe because
-                    it will be used to find your
-                    anonymous concern through the
-                    Notifications page.
+                    recorded. You will receive a
+                    private tracking code after
+                    submitting.
                   </p>
 
                 </div>
@@ -1120,12 +1047,9 @@ export default function ComplaintsPage() {
                   <User className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
 
                   <p>
-                    Your name and Purok/Street are
-                    used to help you find this
-                    submission later through the
-                    central Notifications page,
-                    together with your other barangay
-                    requests.
+                    Your name and Purok/Street will
+                    help you find this submission
+                    later through Notifications.
                   </p>
 
                 </div>
@@ -1133,14 +1057,12 @@ export default function ComplaintsPage() {
 
             </div>
 
-            {/* Error */}
             {errorMessage && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                 {errorMessage}
               </div>
             )}
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={submitting}
@@ -1150,7 +1072,9 @@ export default function ComplaintsPage() {
                 <>
                   <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
 
-                  Submitting Concern...
+                  {uploadingImage
+                    ? "Uploading Photo..."
+                    : "Submitting Concern..."}
                 </>
               ) : (
                 <>
@@ -1169,34 +1093,6 @@ export default function ComplaintsPage() {
             </p>
 
           </form>
-        </div>
-
-        {/* Notification Reminder */}
-        <div className="mt-6 rounded-2xl border border-purple-100 bg-white p-5 shadow-sm">
-
-          <div className="flex items-start gap-3">
-
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-100">
-              <Bell className="h-5 w-5 text-purple-700" />
-            </div>
-
-            <div>
-              <p className="text-sm font-bold text-gray-900">
-                Track all your requests in one place
-              </p>
-
-              <p className="mt-1 text-sm leading-6 text-gray-600">
-                After submitting a concern, you do not
-                need to return to this page to check its
-                progress. Open the notification bell to
-                view your complaint together with your
-                document and equipment requests.
-              </p>
-
-            </div>
-
-          </div>
-
         </div>
 
       </div>

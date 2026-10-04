@@ -2,13 +2,14 @@
 
 import {
   FormEvent,
+  useEffect,
   useRef,
   useState,
 } from "react";
+
 import Link from "next/link";
 import {
   Bell,
-  BellRing,
   FileText,
   AlertTriangle,
   Package,
@@ -24,19 +25,13 @@ import {
 
 import {
   collection,
-  doc,
   getDocs,
   query,
   where,
   Timestamp,
-  setDoc,
-  serverTimestamp,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
-import {
-  requestNotificationPermission,
-} from "@/lib/messaging";
 
 type RequestType =
   | "Document Request"
@@ -90,7 +85,9 @@ function cleanResidentValue(value: string) {
 }
 
 function formatDate(date: Date | null) {
-  if (!date) return "Not available";
+  if (!date) {
+    return "Not available";
+  }
 
   return date.toLocaleDateString("en-US", {
     month: "long",
@@ -100,7 +97,9 @@ function formatDate(date: Date | null) {
 }
 
 function formatDateTime(date: Date | null) {
-  if (!date) return "Not available";
+  if (!date) {
+    return "Not available";
+  }
 
   return date.toLocaleString("en-US", {
     month: "long",
@@ -153,7 +152,8 @@ function getStatusColor(status: string) {
     normalized.includes("rejected") ||
     normalized.includes("cancelled") ||
     normalized.includes("lost") ||
-    normalized.includes("damaged")
+    normalized.includes("damaged") ||
+    normalized.includes("overdue")
   ) {
     return "bg-red-100 text-red-700 border-red-200";
   }
@@ -248,7 +248,8 @@ function getStatusIndex(
 ) {
   return statuses.findIndex(
     (item) =>
-      item.toLowerCase() === status.toLowerCase()
+      item.toLowerCase() ===
+      status.toLowerCase()
   );
 }
 
@@ -259,12 +260,16 @@ function StatusTimeline({
   type: RequestType;
   status: string;
 }) {
-  const statuses = getStatuses(type, status);
-
-  const currentIndex = getStatusIndex(
-    statuses,
+  const statuses = getStatuses(
+    type,
     status
   );
+
+  const currentIndex =
+    getStatusIndex(
+      statuses,
+      status
+    );
 
   const isSpecial = [
     "Rejected",
@@ -281,71 +286,109 @@ function StatusTimeline({
       </p>
 
       <div className="space-y-0">
-        {statuses.map((step, index) => {
-          const completed =
-            currentIndex >= 0 &&
-            index <= currentIndex;
+        {statuses.map(
+          (step, index) => {
+            const completed =
+              currentIndex >= 0 &&
+              index <= currentIndex;
 
-          const isCurrent =
-            step.toLowerCase() ===
-            status.toLowerCase();
+            const isCurrent =
+              step.toLowerCase() ===
+              status.toLowerCase();
 
-          return (
-            <div key={step} className="flex">
-              <div className="mr-4 flex flex-col items-center">
-                {completed ? (
-                  <CheckCircle2
-                    className={`h-6 w-6 ${
-                      isSpecial
-                        ? "text-red-500"
-                        : "text-purple-600"
-                    }`}
-                  />
-                ) : (
-                  <Circle className="h-6 w-6 text-gray-300" />
-                )}
+            return (
+              <div
+                key={step}
+                className="flex"
+              >
+                <div className="mr-4 flex flex-col items-center">
+                  {completed ? (
+                    <CheckCircle2
+                      className={`h-6 w-6 ${
+                        isSpecial
+                          ? "text-red-500"
+                          : "text-purple-600"
+                      }`}
+                    />
+                  ) : (
+                    <Circle className="h-6 w-6 text-gray-300" />
+                  )}
 
-                {index < statuses.length - 1 && (
-                  <div
-                    className={`h-10 w-0.5 ${
-                      completed &&
-                      index < currentIndex
+                  {index <
+                    statuses.length -
+                      1 && (
+                    <div
+                      className={`h-10 w-0.5 ${
+                        completed &&
+                        index <
+                          currentIndex
+                          ? isSpecial
+                            ? "bg-red-300"
+                            : "bg-purple-300"
+                          : "bg-gray-200"
+                      }`}
+                    />
+                  )}
+                </div>
+
+                <div className="pb-7">
+                  <p
+                    className={`text-sm font-medium ${
+                      isCurrent
                         ? isSpecial
-                          ? "bg-red-300"
-                          : "bg-purple-300"
-                        : "bg-gray-200"
+                          ? "text-red-600"
+                          : "text-purple-700"
+                        : completed
+                        ? "text-gray-700"
+                        : "text-gray-400"
                     }`}
-                  />
-                )}
-              </div>
-
-              <div className="pb-7">
-                <p
-                  className={`text-sm font-medium ${
-                    isCurrent
-                      ? isSpecial
-                        ? "text-red-600"
-                        : "text-purple-700"
-                      : completed
-                      ? "text-gray-700"
-                      : "text-gray-400"
-                  }`}
-                >
-                  {step}
-                </p>
-
-                {isCurrent && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    Current status
+                  >
+                    {step}
                   </p>
-                )}
+
+                  {isCurrent && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Current status
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          }
+        )}
       </div>
     </div>
   );
+}
+
+function normalizeRequestType(
+  value: string | null
+): RequestType | null {
+  switch (
+    value?.toLowerCase()
+  ) {
+    case "document":
+    case "documents":
+    case "document request":
+      return "Document Request";
+
+    case "complaint":
+    case "complaints":
+      return "Complaint";
+
+    case "borrow":
+    case "borrowing":
+    case "equipment borrowing":
+      return "Equipment Borrowing";
+
+    case "return":
+    case "returning":
+    case "equipment returning":
+      return "Equipment Returning";
+
+    default:
+      return null;
+  }
 }
 
 export default function NotificationsPage() {
@@ -358,22 +401,19 @@ export default function NotificationsPage() {
   const [trackingCode, setTrackingCode] =
     useState("");
 
-  const [notificationsEnabled, setNotificationsEnabled] =
-    useState(false);
-
-  const [notificationLoading, setNotificationLoading] =
-    useState(false);
-
-  const [notificationMessage, setNotificationMessage] =
-    useState("");
-
   const [requests, setRequests] =
     useState<RequestItem[]>([]);
 
   const [loading, setLoading] =
     useState(false);
 
+  const [directLoading, setDirectLoading] =
+    useState(false);
+
   const [searched, setSearched] =
+    useState(false);
+
+  const [directRequestLoaded, setDirectRequestLoaded] =
     useState(false);
 
   const [error, setError] =
@@ -387,147 +427,41 @@ export default function NotificationsPage() {
 
   /*
    * ============================================================
-   * ENABLE BROWSER PUSH NOTIFICATIONS
-   * ============================================================
-   */
-  async function handleEnableNotifications() {
-    const cleanName =
-      cleanResidentValue(fullName);
-
-    const cleanPurokStreet =
-      cleanResidentValue(purokStreet);
-
-    /*
-     * Resident information is required so the
-     * notification token can be connected to
-     * the correct resident requests.
-     */
-    if (!cleanName) {
-      setNotificationMessage(
-        "Please enter your Full Name first so notifications can be connected to your requests."
-      );
-
-      fullNameInputRef.current?.focus();
-
-      return;
-    }
-
-    if (!cleanPurokStreet) {
-      setNotificationMessage(
-        "Please enter your Purok / Street first so notifications can be connected to your requests."
-      );
-
-      purokStreetInputRef.current?.focus();
-
-      return;
-    }
-
-    setNotificationLoading(true);
-    setNotificationMessage("");
-
-    try {
-      /*
-       * Ask the browser for notification permission
-       * and generate the Firebase Cloud Messaging token.
-       */
-      const token =
-        await requestNotificationPermission();
-
-      if (!token) {
-        setNotificationMessage(
-          "Notifications were not enabled. Please allow notifications in your browser settings and try again."
-        );
-
-        return;
-      }
-
-      /*
-       * IMPORTANT:
-       *
-       * Do NOT query/read notificationTokens here.
-       *
-       * Residents are not allowed to read this collection
-       * for security reasons.
-       *
-       * Instead, the FCM token itself is used as the
-       * document ID. This allows us to directly create
-       * or update the resident's notification record.
-       */
-      const tokenId =
-        encodeURIComponent(token);
-
-      await setDoc(
-        doc(
-          db,
-          "notificationTokens",
-          tokenId
-        ),
-        {
-          token,
-
-          fullName:
-            cleanName,
-
-          purokStreet:
-            cleanPurokStreet,
-
-          updatedAt:
-            serverTimestamp(),
-        },
-        {
-          merge: true,
-        }
-      );
-
-      setNotificationsEnabled(true);
-
-      setNotificationMessage(
-        "Notifications are now enabled. You will receive an alert when there is progress on your document requests, community concerns, equipment borrowing, or equipment returning requests."
-      );
-    } catch (notificationError) {
-      console.error(
-        "Error enabling notifications:",
-        notificationError
-      );
-
-      setNotificationMessage(
-        "Unable to enable notifications. Please check your browser notification permission and try again."
-      );
-    } finally {
-      setNotificationLoading(false);
-    }
-  }
-
-  /*
-   * ============================================================
    * SEARCH RESIDENT REQUESTS
    * ============================================================
    */
   async function handleSearch(
-    event: FormEvent<HTMLFormElement>
+    event?: FormEvent<HTMLFormElement>
   ) {
-    event.preventDefault();
+    event?.preventDefault();
 
     setError("");
     setRequests([]);
     setSearched(false);
+    setDirectRequestLoaded(false);
 
     const cleanName =
       cleanResidentValue(fullName);
 
     const cleanPurokStreet =
-      cleanResidentValue(purokStreet);
+      cleanResidentValue(
+        purokStreet
+      );
 
     const cleanTrackingCode =
-      trackingCode.trim().toUpperCase();
+      trackingCode
+        .trim()
+        .toUpperCase();
 
     /*
      * Resident lookup requires both
      * Full Name and Purok/Street.
      */
     if (
-      (cleanName && !cleanPurokStreet) ||
-      (!cleanName && cleanPurokStreet)
+      (cleanName &&
+        !cleanPurokStreet) ||
+      (!cleanName &&
+        cleanPurokStreet)
     ) {
       setError(
         "Please enter both your Full Name and Purok/Street."
@@ -597,7 +531,9 @@ export default function NotificationsPage() {
           );
 
         documentsSnapshot.forEach(
-          (documentSnapshot) => {
+          (
+            documentSnapshot
+          ) => {
             const data =
               documentSnapshot.data();
 
@@ -674,13 +610,15 @@ export default function NotificationsPage() {
           );
 
         complaintsSnapshot.forEach(
-          (complaintSnapshot) => {
+          (
+            complaintSnapshot
+          ) => {
             const data =
               complaintSnapshot.data();
 
             /*
              * Anonymous complaints should not
-             * appear in resident lookup.
+             * appear in normal resident lookup.
              */
             if (
               data.submissionType ===
@@ -754,7 +692,9 @@ export default function NotificationsPage() {
           );
 
         anonymousSnapshot.forEach(
-          (complaintSnapshot) => {
+          (
+            complaintSnapshot
+          ) => {
             const data =
               complaintSnapshot.data();
 
@@ -1013,9 +953,616 @@ export default function NotificationsPage() {
     }
   }
 
-  const residentInformationReady =
-    cleanResidentValue(fullName) !== "" &&
-    cleanResidentValue(purokStreet) !== "";
+  /*
+   * ============================================================
+   * DIRECT REQUEST LOOKUP FROM EMAIL LINK
+   *
+   * Example:
+   * /notifications?requestId=ABC123&requestType=document
+   *
+   * This allows the email button to open the
+   * specific request directly.
+   * ============================================================
+   */
+  async function loadDirectRequest(
+    requestId: string,
+    requestType: RequestType,
+    trackingCodeFromUrl?: string
+  ) {
+    setDirectLoading(true);
+    setError("");
+    setRequests([]);
+    setSearched(false);
+
+    try {
+      const allRequests: RequestItem[] =
+        [];
+
+      /*
+       * ============================================================
+       * DOCUMENT
+       * ============================================================
+       */
+      if (
+        requestType ===
+        "Document Request"
+      ) {
+        const documentQuery =
+          query(
+            collection(
+              db,
+              "documents"
+            ),
+            where(
+              "__name__",
+              "==",
+              requestId
+            )
+          );
+
+        const snapshot =
+          await getDocs(
+            documentQuery
+          );
+
+        snapshot.forEach(
+          (documentSnapshot) => {
+            const data =
+              documentSnapshot.data();
+
+            allRequests.push({
+              id:
+                documentSnapshot.id,
+
+              type:
+                "Document Request",
+
+              title:
+                data.documentType ||
+                "Barangay Document Request",
+
+              status:
+                data.status ||
+                "Pending",
+
+              createdAt:
+                convertTimestamp(
+                  data.createdAt
+                ),
+
+              updatedAt:
+                convertTimestamp(
+                  data.updatedAt
+                ),
+
+              details:
+                data.purpose ||
+                "No purpose provided.",
+
+              extraDetails:
+                `Purok/Street: ${
+                  data.purokStreet ||
+                  "Not provided"
+                }`,
+            });
+          }
+        );
+      }
+
+      /*
+       * ============================================================
+       * COMPLAINT
+       * ============================================================
+       */
+      if (
+        requestType ===
+        "Complaint"
+      ) {
+        const complaintQuery =
+          query(
+            collection(
+              db,
+              "complaints"
+            ),
+            where(
+              "__name__",
+              "==",
+              requestId
+            )
+          );
+
+        const snapshot =
+          await getDocs(
+            complaintQuery
+          );
+
+        snapshot.forEach(
+          (complaintSnapshot) => {
+            const data =
+              complaintSnapshot.data();
+
+            /*
+             * If a tracking code was supplied,
+             * verify that it matches the complaint.
+             */
+            if (
+              trackingCodeFromUrl &&
+              String(
+                data.trackingCode || ""
+              ).toUpperCase() !==
+                trackingCodeFromUrl.toUpperCase()
+            ) {
+              return;
+            }
+
+            allRequests.push({
+              id:
+                complaintSnapshot.id,
+
+              type:
+                "Complaint",
+
+              title:
+                data.category ||
+                "Community Concern",
+
+              status:
+                data.status ||
+                "Pending",
+
+              createdAt:
+                convertTimestamp(
+                  data.createdAt
+                ),
+
+              updatedAt:
+                convertTimestamp(
+                  data.updatedAt
+                ),
+
+              details:
+                data.description ||
+                "No description provided.",
+
+              extraDetails:
+                `Location: ${
+                  data.locationOfConcern ||
+                  "Not provided"
+                }`,
+            });
+          }
+        );
+      }
+
+      /*
+       * ============================================================
+       * EQUIPMENT BORROWING
+       * ============================================================
+       */
+      if (
+        requestType ===
+        "Equipment Borrowing"
+      ) {
+        const assetQuery =
+          query(
+            collection(
+              db,
+              "assets"
+            ),
+            where(
+              "__name__",
+              "==",
+              requestId
+            )
+          );
+
+        const snapshot =
+          await getDocs(
+            assetQuery
+          );
+
+        snapshot.forEach(
+          (assetSnapshot) => {
+            const data =
+              assetSnapshot.data();
+
+            const assetName =
+              data.assetName ||
+              "Barangay Equipment";
+
+            const quantity =
+              data.quantity || 1;
+
+            allRequests.push({
+              id:
+                `${assetSnapshot.id}-borrow`,
+
+              type:
+                "Equipment Borrowing",
+
+              title:
+                assetName,
+
+              status:
+                data.status ||
+                "Pending",
+
+              createdAt:
+                convertTimestamp(
+                  data.createdAt
+                ),
+
+              updatedAt:
+                convertTimestamp(
+                  data.updatedAt
+                ),
+
+              details:
+                `Quantity: ${quantity}`,
+
+              extraDetails:
+                `Borrow Date: ${
+                  data.borrowDate ||
+                  "Not provided"
+                }`,
+            });
+          }
+        );
+      }
+
+      /*
+       * ============================================================
+       * EQUIPMENT RETURNING
+       * ============================================================
+       */
+      if (
+        requestType ===
+        "Equipment Returning"
+      ) {
+        const assetQuery =
+          query(
+            collection(
+              db,
+              "assets"
+            ),
+            where(
+              "__name__",
+              "==",
+              requestId
+            )
+          );
+
+        const snapshot =
+          await getDocs(
+            assetQuery
+          );
+
+        snapshot.forEach(
+          (assetSnapshot) => {
+            const data =
+              assetSnapshot.data();
+
+            const assetName =
+              data.assetName ||
+              "Barangay Equipment";
+
+            const quantity =
+              data.quantity || 1;
+
+            let returnStatus =
+              "Return Requested";
+
+            if (
+              data.status ===
+              "Returned"
+            ) {
+              returnStatus =
+                "Returned";
+            } else if (
+              data.status ===
+              "Damaged"
+            ) {
+              returnStatus =
+                "Damaged";
+            } else if (
+              data.status ===
+              "Lost"
+            ) {
+              returnStatus =
+                "Lost";
+            } else if (
+              data.status ===
+              "Overdue"
+            ) {
+              returnStatus =
+                "Overdue";
+            }
+
+            allRequests.push({
+              id:
+                `${assetSnapshot.id}-return`,
+
+              type:
+                "Equipment Returning",
+
+              title:
+                assetName,
+
+              status:
+                returnStatus,
+
+              createdAt:
+                convertTimestamp(
+                  data.createdAt
+                ),
+
+              updatedAt:
+                convertTimestamp(
+                  data.updatedAt
+                ),
+
+              details:
+                `Quantity: ${quantity}`,
+
+              extraDetails:
+                data.actualReturnDate
+                  ? `Returned: ${data.actualReturnDate}`
+                  : "Return information is being processed.",
+            });
+          }
+        );
+      }
+
+      if (
+        allRequests.length ===
+        0
+      ) {
+        setError(
+          "Request not found. Please check your email link or use the manual request status lookup."
+        );
+
+        setSearched(true);
+        return;
+      }
+
+      allRequests.sort(
+        (a, b) => {
+          const dateA =
+            a.updatedAt?.getTime() ||
+            a.createdAt?.getTime() ||
+            0;
+
+          const dateB =
+            b.updatedAt?.getTime() ||
+            b.createdAt?.getTime() ||
+            0;
+
+          return dateB - dateA;
+        }
+      );
+
+      setRequests(
+        allRequests
+      );
+
+      setSearched(true);
+      setDirectRequestLoaded(true);
+    } catch (directError) {
+      console.error(
+        "Error loading direct request:",
+        directError
+      );
+
+      setError(
+        "Unable to open this request. Please use the manual request status lookup."
+      );
+
+      setSearched(true);
+    } finally {
+      setDirectLoading(false);
+    }
+  }
+
+  /*
+   * ============================================================
+   * READ REQUEST ID FROM EMAIL LINK
+   * ============================================================
+   */
+  useEffect(() => {
+    if (
+      typeof window ===
+      "undefined"
+    ) {
+      return;
+    }
+
+    const params =
+      new URLSearchParams(
+        window.location.search
+      );
+
+    const requestId =
+      params.get(
+        "requestId"
+      );
+
+    const requestType =
+      normalizeRequestType(
+        params.get(
+          "requestType"
+        )
+      );
+
+    const urlTrackingCode =
+      params
+        .get(
+          "trackingCode"
+        )
+        ?.trim()
+        .toUpperCase();
+
+    /*
+     * Anonymous complaint links can use
+     * trackingCode.
+     */
+    if (
+      requestId &&
+      requestType ===
+        "Complaint"
+    ) {
+      loadDirectRequest(
+        requestId,
+        requestType,
+        urlTrackingCode
+      );
+
+      return;
+    }
+
+    if (
+      requestId &&
+      requestType
+    ) {
+      loadDirectRequest(
+        requestId,
+        requestType
+      );
+
+      return;
+    }
+
+    /*
+     * If the URL only contains a tracking code,
+     * automatically search for the anonymous complaint.
+     */
+    if (
+      urlTrackingCode &&
+      !requestId
+    ) {
+      setTrackingCode(
+        urlTrackingCode
+      );
+
+      const runAnonymousSearch =
+        async () => {
+          setDirectLoading(
+            true
+          );
+          setError("");
+
+          try {
+            const anonymousComplaintQuery =
+              query(
+                collection(
+                  db,
+                  "complaints"
+                ),
+                where(
+                  "trackingCode",
+                  "==",
+                  urlTrackingCode
+                )
+              );
+
+            const snapshot =
+              await getDocs(
+                anonymousComplaintQuery
+              );
+
+            const foundRequests: RequestItem[] =
+              [];
+
+            snapshot.forEach(
+              (
+                complaintSnapshot
+              ) => {
+                const data =
+                  complaintSnapshot.data();
+
+                if (
+                  data.submissionType !==
+                  "Anonymous"
+                ) {
+                  return;
+                }
+
+                foundRequests.push({
+                  id:
+                    complaintSnapshot.id,
+
+                  type:
+                    "Complaint",
+
+                  title:
+                    data.category ||
+                    "Anonymous Community Concern",
+
+                  status:
+                    data.status ||
+                    "Pending",
+
+                  createdAt:
+                    convertTimestamp(
+                      data.createdAt
+                    ),
+
+                  updatedAt:
+                    convertTimestamp(
+                      data.updatedAt
+                    ),
+
+                  details:
+                    data.description ||
+                    "No description provided.",
+
+                  extraDetails:
+                    `Location: ${
+                      data.locationOfConcern ||
+                      "Not provided"
+                    }`,
+                });
+              }
+            );
+
+            if (
+              foundRequests.length ===
+              0
+            ) {
+              setError(
+                "Request not found. Please check your tracking code."
+              );
+            }
+
+            setRequests(
+              foundRequests
+            );
+
+            setSearched(true);
+            setDirectRequestLoaded(
+              foundRequests.length >
+                0
+            );
+          } catch (trackingError) {
+            console.error(
+              "Error loading tracking code request:",
+              trackingError
+            );
+
+            setError(
+              "Unable to load the request using this tracking code."
+            );
+
+            setSearched(true);
+          } finally {
+            setDirectLoading(
+              false
+            );
+          }
+        };
+
+      runAnonymousSearch();
+    }
+  }, []);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50">
@@ -1053,6 +1600,37 @@ export default function NotificationsPage() {
       </section>
 
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+        {/* Direct Request Notice */}
+        {directRequestLoaded && (
+          <section className="mb-6 rounded-2xl border border-green-200 bg-green-50 p-4">
+            <div className="flex gap-3">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600" />
+
+              <div>
+                <p className="text-sm font-semibold text-green-800">
+                  Request Opened
+                </p>
+
+                <p className="mt-1 text-sm leading-6 text-green-700">
+                  This request was opened directly
+                  from your email notification.
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Direct Request Loading */}
+        {directLoading && (
+          <section className="mb-6 rounded-2xl border border-purple-100 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-center gap-3 text-sm text-purple-700">
+              <Loader2 className="h-5 w-5 animate-spin" />
+
+              Loading your request...
+            </div>
+          </section>
+        )}
+
         {/* Search Card */}
         <section className="rounded-3xl border border-purple-100 bg-white p-5 shadow-sm sm:p-7">
           <div className="mb-6">
@@ -1097,7 +1675,9 @@ export default function NotificationsPage() {
                 </label>
 
                 <input
-                  ref={purokStreetInputRef}
+                  ref={
+                    purokStreetInputRef
+                  }
                   type="text"
                   value={purokStreet}
                   onChange={(event) =>
@@ -1153,14 +1733,23 @@ export default function NotificationsPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={
+                loading ||
+                directLoading
+              }
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <Search className="h-4 w-4" />
-
-              {loading
-                ? "Checking Your Requests..."
-                : "View My Requests"}
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Checking Your Requests...
+                </>
+              ) : (
+                <>
+                  <Search className="h-4 w-4" />
+                  View My Requests
+                </>
+              )}
             </button>
           </form>
 
@@ -1174,135 +1763,18 @@ export default function NotificationsPage() {
               service page separately.
             </p>
           </div>
-        </section>
 
-        {/* Push Notifications */}
-        <section className="mt-6 rounded-3xl border border-purple-100 bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
-                {notificationsEnabled ? (
-                  <BellRing className="h-6 w-6" />
-                ) : (
-                  <Bell className="h-6 w-6" />
-                )}
-              </div>
+          <div className="mt-4 flex gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
+            <Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
 
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">
-                  Get Automatic Updates
-                </h2>
-
-                <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-600">
-                  Enable push notifications to
-                  receive an alert on your phone
-                  when there is progress on your
-                  document, community concern, or
-                  equipment request.
-                </p>
-
-                {!notificationsEnabled && (
-                  <p
-                    className={`mt-2 text-xs font-medium ${
-                      residentInformationReady
-                        ? "text-green-600"
-                        : "text-purple-600"
-                    }`}
-                  >
-                    {residentInformationReady
-                      ? "✓ Full Name and Purok / Street are ready for notification registration."
-                      : "Enter your Full Name and Purok / Street above first."}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={
-                handleEnableNotifications
-              }
-              disabled={
-                notificationLoading ||
-                notificationsEnabled
-              }
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {notificationLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Enabling...
-                </>
-              ) : notificationsEnabled ? (
-                <>
-                  <BellRing className="h-4 w-4" />
-                  Notifications Enabled
-                </>
-              ) : (
-                <>
-                  <Bell className="h-4 w-4" />
-                  Enable Notifications
-                </>
-              )}
-            </button>
+            <p className="text-xs leading-5 text-blue-800">
+              Status updates are sent to the email
+              address you provided when submitting
+              your request. If you opened this page
+              from an email notification, your specific
+              request is displayed automatically.
+            </p>
           </div>
-
-          {notificationMessage && (
-            <div
-              className={`mt-4 rounded-xl border p-4 ${
-                notificationsEnabled
-                  ? "border-green-200 bg-green-50"
-                  : "border-purple-100 bg-purple-50"
-              }`}
-            >
-              <p
-                className={`text-sm leading-6 ${
-                  notificationsEnabled
-                    ? "text-green-800"
-                    : "text-purple-800"
-                }`}
-              >
-                {notificationMessage}
-              </p>
-            </div>
-          )}
-
-          {!notificationsEnabled && (
-            <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
-              <div className="flex gap-3">
-                <Info className="mt-0.5 h-5 w-5 shrink-0 text-gray-500" />
-
-                <div>
-                  <p className="text-sm font-semibold text-gray-700">
-                    How it works
-                  </p>
-
-                  <ol className="mt-2 space-y-1 text-xs leading-5 text-gray-500">
-                    <li>
-                      1. Enter your Full Name
-                      and Purok / Street above.
-                    </li>
-
-                    <li>
-                      2. Click Enable
-                      Notifications.
-                    </li>
-
-                    <li>
-                      3. Allow notifications
-                      when your browser asks.
-                    </li>
-
-                    <li>
-                      4. You will receive an
-                      alert when your request
-                      status changes.
-                    </li>
-                  </ol>
-                </div>
-              </div>
-            </div>
-          )}
         </section>
 
         {/* Results */}

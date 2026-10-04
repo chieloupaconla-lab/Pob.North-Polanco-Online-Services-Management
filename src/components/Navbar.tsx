@@ -32,15 +32,9 @@ export default function Navbar() {
           <div className="flex flex-col gap-1.5 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
             {/* Portal Notice */}
             <div className="flex min-w-0 items-center justify-center gap-2 sm:justify-start">
-              <span
-                className="h-2 w-2 shrink-0 rounded-full bg-emerald-400 animate-pulse"
-                aria-hidden="true"
-              />
+              
 
-              <span className="text-[10px] font-medium leading-tight sm:text-xs">
-                Official Portal — Barangay Poblacion North, Polanco, Zamboanga
-                del Norte
-              </span>
+              
             </div>
 
             {/* Hall Information */}

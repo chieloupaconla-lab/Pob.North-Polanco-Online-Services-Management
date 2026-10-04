@@ -1,6 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Eye,
+  FileImage,
+  FileText,
+  Filter,
+  Loader2,
+  MapPin,
+  MessageSquare,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  User,
+  X,
+} from "lucide-react";
+
 import {
   collection,
   doc,
@@ -8,30 +33,10 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { db, auth } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
-import AdminAuthGuard from "@/components/AdminAuthGuard";
-import {
-  AlertCircle,
-  ArrowLeft,
-  CheckCircle2,
-  ClipboardList,
-  Eye,
-  FileImage,
-  Filter,
-  Loader2,
-  LogOut,
-  Menu,
-  MessageSquareWarning,
-  Search,
-  User,
-  UserCheck,
-  X,
-} from "lucide-react";
-import {
-  onAuthStateChanged,
-  signOut,
-} from "firebase/auth";
+
+import { db } from "@/lib/firebase";
+
+import AdminAuthGuard from "@/components/admin/AdminAuthGuard";
 
 type ComplaintStatus =
   | "Pending"
@@ -40,21 +45,40 @@ type ComplaintStatus =
   | "In Progress"
   | "Resolved";
 
-type SubmissionType = "anonymous" | "named";
+type SubmissionType =
+  | "anonymous"
+  | "named";
 
 interface Complaint {
   id: string;
-  submissionType: SubmissionType;
+
+  submissionType:
+    SubmissionType;
+
   fullName: string;
+
+  purokStreet: string;
+
   category: string;
+
   description: string;
+
   locationOfConcern: string;
+
   incidentDate: string;
+
   evidenceUrl: string;
+
+  evidenceUploadStatus: string;
+
   status: ComplaintStatus;
+
   adminNotes: string;
+
   assignedTo: string;
+
   submittedAt: string;
+
   createdAtValue: number;
 }
 
@@ -66,68 +90,110 @@ const statusOptions: ComplaintStatus[] = [
   "Resolved",
 ];
 
-const statusStyles: Record<ComplaintStatus, string> = {
-  Pending:
-    "bg-amber-100 text-amber-800 border-amber-200",
+const categoryOptions = [
+  "Community Concern",
+  "Damaged Public Facility",
+  "Road or Drainage Problem",
+  "Streetlight Problem",
+  "Public Safety Concern",
+  "Other",
+];
 
-  "Under Review":
-    "bg-blue-100 text-blue-800 border-blue-200",
+function getStatusClasses(
+  status: ComplaintStatus
+) {
+  switch (status) {
+    case "Pending":
+      return "bg-amber-50 text-amber-700 border-amber-200";
 
-  "For Action":
-    "bg-orange-100 text-orange-800 border-orange-200",
+    case "Under Review":
+      return "bg-blue-50 text-blue-700 border-blue-200";
 
-  "In Progress":
-    "bg-violet-100 text-violet-800 border-violet-200",
+    case "For Action":
+      return "bg-orange-50 text-orange-700 border-orange-200";
 
-  Resolved:
-    "bg-green-100 text-green-800 border-green-200",
-};
+    case "In Progress":
+      return "bg-violet-50 text-violet-700 border-violet-200";
+
+    case "Resolved":
+      return "bg-green-50 text-green-700 border-green-200";
+
+    default:
+      return "bg-slate-50 text-slate-600 border-slate-200";
+  }
+}
+
+function getEvidenceStatusClasses(
+  status: string
+) {
+  switch (status) {
+    case "Uploaded":
+      return "bg-green-50 text-green-700 border-green-200";
+
+    case "Uploading":
+      return "bg-blue-50 text-blue-700 border-blue-200";
+
+    case "Failed":
+    case "Failed - Image Too Large":
+      return "bg-red-50 text-red-700 border-red-200";
+
+    default:
+      return "bg-slate-50 text-slate-500 border-slate-200";
+  }
+}
+
+export default function AdminComplaintsPage() {
+  return (
+    <AdminAuthGuard>
+      <AdminComplaintsContent />
+    </AdminAuthGuard>
+  );
+}
 
 function AdminComplaintsContent() {
-  const router = useRouter();
+  const [complaints, setComplaints] =
+    useState<Complaint[]>([]);
 
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [firestoreError, setFirestoreError] = useState("");
+  const [loading, setLoading] =
+    useState(true);
 
-  const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] =
+    useState("");
 
-  const [statusFilter, setStatusFilter] = useState<
-    "All" | ComplaintStatus
-  >("All");
+  const [searchQuery, setSearchQuery] =
+    useState("");
+
+  const [statusFilter, setStatusFilter] =
+    useState<"All" | ComplaintStatus>(
+      "All"
+    );
+
+  const [categoryFilter, setCategoryFilter] =
+    useState("All");
 
   const [selectedComplaint, setSelectedComplaint] =
     useState<Complaint | null>(null);
 
-  const [photoModalUrl, setPhotoModalUrl] = useState("");
+  const [photoModalUrl, setPhotoModalUrl] =
+    useState<string | null>(null);
 
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [saving, setSaving] =
+    useState(false);
 
-  const [adminEmail, setAdminEmail] = useState("");
+  const [saveMessage, setSaveMessage] =
+    useState("");
 
-  const [saving, setSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState("");
-  const [saveError, setSaveError] = useState("");
+  const [saveError, setSaveError] =
+    useState("");
 
   const [editStatus, setEditStatus] =
     useState<ComplaintStatus>("Pending");
 
-  const [editNotes, setEditNotes] = useState("");
-  const [editAssignedTo, setEditAssignedTo] = useState("");
+  const [editNotes, setEditNotes] =
+    useState("");
 
-  /*
-   * ============================================================
-   * CURRENT ADMIN
-   * ============================================================
-   */
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setAdminEmail(user?.email || "");
-    });
-
-    return () => unsubscribe();
-  }, []);
+  const [editAssignedTo, setEditAssignedTo] =
+    useState("");
 
   /*
    * ============================================================
@@ -137,160 +203,264 @@ function AdminComplaintsContent() {
 
   useEffect(() => {
     setLoading(true);
-    setFirestoreError("");
+    setError("");
 
-    const complaintsRef = collection(db, "complaints");
+    const complaintsRef =
+      collection(db, "complaints");
 
-    const unsubscribe = onSnapshot(
-      complaintsRef,
-      (snapshot) => {
-        const loadedComplaints: Complaint[] = snapshot.docs.map(
-          (complaintDoc) => {
-            const data = complaintDoc.data();
+    const unsubscribe =
+      onSnapshot(
+        complaintsRef,
+        (snapshot) => {
+          const complaintList: Complaint[] =
+            snapshot.docs.map(
+              (complaintDoc) => {
+                const data =
+                  complaintDoc.data();
 
-            const createdAt =
-              data.createdAt?.toDate?.() || null;
+                const createdAt =
+                  data.createdAt?.toDate
+                    ? data.createdAt.toDate()
+                    : null;
 
-            return {
-              id: complaintDoc.id,
+                const normalizedStatus =
+                  statusOptions.includes(
+                    data.status
+                  )
+                    ? data.status
+                    : "Pending";
 
-              submissionType:
-                data.submissionType === "named"
-                  ? "named"
-                  : "anonymous",
+                /*
+                 * IMPORTANT:
+                 *
+                 * Resident page stores:
+                 * "Provide My Name"
+                 * "Anonymous"
+                 *
+                 * Older records may have:
+                 * "named"
+                 *
+                 * Support all of them.
+                 */
 
-              fullName: data.fullName || "",
+                const normalizedSubmissionType =
+                  data.submissionType ===
+                    "Provide My Name" ||
+                  data.submissionType ===
+                    "named"
+                    ? "named"
+                    : "anonymous";
 
-              category:
-                data.category || "Community Concern",
+                /*
+                 * IMPORTANT PHOTO LOGIC:
+                 *
+                 * If evidenceUrl exists,
+                 * consider it uploaded even if
+                 * evidenceUploadStatus is missing.
+                 */
 
-              description:
-                data.description || "",
+                const evidenceUrl =
+                  typeof data.evidenceUrl ===
+                  "string"
+                    ? data.evidenceUrl
+                    : "";
 
-              locationOfConcern:
-                data.locationOfConcern || "",
+                const evidenceUploadStatus =
+                  typeof data.evidenceUploadStatus ===
+                  "string"
+                    ? data.evidenceUploadStatus
+                    : evidenceUrl
+                    ? "Uploaded"
+                    : "No Photo";
 
-              incidentDate:
-                data.incidentDate || "",
+                return {
+                  id: complaintDoc.id,
 
-              evidenceUrl:
-                data.evidenceUrl || "",
+                  submissionType:
+                    normalizedSubmissionType,
 
-              status: statusOptions.includes(
-                data.status
-              )
-                ? data.status
-                : "Pending",
+                  fullName:
+                    data.fullName || "",
 
-              adminNotes:
-                data.adminNotes || "",
+                  purokStreet:
+                    data.purokStreet || "",
 
-              assignedTo:
-                data.assignedTo || "",
+                  category:
+                    data.category ||
+                    "Community Concern",
 
-              submittedAt: createdAt
-                ? createdAt.toLocaleString()
-                : "Recently submitted",
+                  description:
+                    data.description || "",
 
-              createdAtValue: createdAt
-                ? createdAt.getTime()
-                : 0,
-            };
-          }
-        );
+                  locationOfConcern:
+                    data.locationOfConcern ||
+                    "",
 
-        loadedComplaints.sort(
-          (a, b) =>
-            b.createdAtValue -
-            a.createdAtValue
-        );
+                  incidentDate:
+                    data.incidentDate || "",
 
-        setComplaints(loadedComplaints);
-        setLoading(false);
-      },
-      (error) => {
-        console.error(
-          "Firestore complaints error:",
-          error
-        );
+                  evidenceUrl,
 
-        setFirestoreError(
-          `Unable to load community concerns: ${error.message}`
-        );
+                  evidenceUploadStatus,
 
-        setLoading(false);
-      }
-    );
+                  status:
+                    normalizedStatus,
+
+                  adminNotes:
+                    data.adminNotes || "",
+
+                  assignedTo:
+                    data.assignedTo || "",
+
+                  submittedAt: createdAt
+                    ? createdAt.toLocaleString()
+                    : "Recently submitted",
+
+                  createdAtValue:
+                    createdAt
+                      ? createdAt.getTime()
+                      : 0,
+                };
+              }
+            );
+
+          complaintList.sort(
+            (a, b) =>
+              b.createdAtValue -
+              a.createdAtValue
+          );
+
+          setComplaints(
+            complaintList
+          );
+
+          setLoading(false);
+        },
+        (snapshotError) => {
+          console.error(
+            "Error loading complaints:",
+            snapshotError
+          );
+
+          setError(
+            "Unable to load community concerns. Please check your Firebase permissions."
+          );
+
+          setLoading(false);
+        }
+      );
 
     return () => unsubscribe();
   }, []);
 
   /*
    * ============================================================
-   * FILTER
+   * FILTERED COMPLAINTS
    * ============================================================
    */
 
-  const filteredComplaints = useMemo(() => {
-    const search = searchTerm
-      .trim()
-      .toLowerCase();
+  const filteredComplaints =
+    useMemo(() => {
+      const query =
+        searchQuery
+          .trim()
+          .toLowerCase();
 
-    return complaints.filter((complaint) => {
-      const matchesSearch =
-        !search ||
-        complaint.fullName
-          .toLowerCase()
-          .includes(search) ||
-        complaint.description
-          .toLowerCase()
-          .includes(search) ||
-        complaint.locationOfConcern
-          .toLowerCase()
-          .includes(search) ||
-        complaint.category
-          .toLowerCase()
-          .includes(search);
+      return complaints.filter(
+        (complaint) => {
+          const matchesSearch =
+            !query ||
+            complaint.fullName
+              .toLowerCase()
+              .includes(query) ||
+            complaint.purokStreet
+              .toLowerCase()
+              .includes(query) ||
+            complaint.category
+              .toLowerCase()
+              .includes(query) ||
+            complaint.description
+              .toLowerCase()
+              .includes(query) ||
+            complaint.locationOfConcern
+              .toLowerCase()
+              .includes(query) ||
+            complaint.id
+              .toLowerCase()
+              .includes(query);
 
-      const matchesStatus =
-        statusFilter === "All" ||
-        complaint.status === statusFilter;
+          const matchesStatus =
+            statusFilter === "All" ||
+            complaint.status ===
+              statusFilter;
 
-      return matchesSearch && matchesStatus;
-    });
-  }, [
-    complaints,
-    searchTerm,
-    statusFilter,
-  ]);
+          const matchesCategory =
+            categoryFilter === "All" ||
+            complaint.category ===
+              categoryFilter;
+
+          return (
+            matchesSearch &&
+            matchesStatus &&
+            matchesCategory
+          );
+        }
+      );
+    }, [
+      complaints,
+      searchQuery,
+      statusFilter,
+      categoryFilter,
+    ]);
 
   /*
    * ============================================================
-   * SUMMARY COUNTS
+   * SUMMARY
    * ============================================================
    */
 
-  const totalCount = complaints.length;
+  const summary = useMemo(() => {
+    return {
+      total: complaints.length,
 
-  const pendingCount = complaints.filter(
-    (item) => item.status === "Pending"
-  ).length;
+      pending: complaints.filter(
+        (item) =>
+          item.status === "Pending"
+      ).length,
 
-  const underReviewCount = complaints.filter(
-    (item) => item.status === "Under Review"
-  ).length;
+      underReview: complaints.filter(
+        (item) =>
+          item.status ===
+          "Under Review"
+      ).length,
 
-  const forActionCount = complaints.filter(
-    (item) => item.status === "For Action"
-  ).length;
+      inProgress: complaints.filter(
+        (item) =>
+          item.status ===
+            "For Action" ||
+          item.status ===
+            "In Progress"
+      ).length,
 
-  const inProgressCount = complaints.filter(
-    (item) => item.status === "In Progress"
-  ).length;
+      resolved: complaints.filter(
+        (item) =>
+          item.status === "Resolved"
+      ).length,
 
-  const resolvedCount = complaints.filter(
-    (item) => item.status === "Resolved"
-  ).length;
+      withPhoto: complaints.filter(
+        (item) =>
+          Boolean(item.evidenceUrl)
+      ).length,
+
+      failedPhotos: complaints.filter(
+        (item) =>
+          item.evidenceUploadStatus ===
+            "Failed" ||
+          item.evidenceUploadStatus ===
+            "Failed - Image Too Large"
+      ).length,
+    };
+  }, [complaints]);
 
   /*
    * ============================================================
@@ -301,10 +471,18 @@ function AdminComplaintsContent() {
   const openComplaint = (
     complaint: Complaint
   ) => {
-    setSelectedComplaint(complaint);
+    setSelectedComplaint(
+      complaint
+    );
 
-    setEditStatus(complaint.status);
-    setEditNotes(complaint.adminNotes);
+    setEditStatus(
+      complaint.status
+    );
+
+    setEditNotes(
+      complaint.adminNotes
+    );
+
     setEditAssignedTo(
       complaint.assignedTo
     );
@@ -315,11 +493,11 @@ function AdminComplaintsContent() {
 
   /*
    * ============================================================
-   * SAVE CHANGES
+   * SAVE ADMIN CHANGES
    * ============================================================
    */
 
-  const handleSaveChanges = async () => {
+  const saveChanges = async () => {
     if (!selectedComplaint) {
       return;
     }
@@ -340,13 +518,20 @@ function AdminComplaintsContent() {
         unknown
       > = {
         status: editStatus,
-        adminNotes: editNotes.trim(),
+
+        adminNotes:
+          editNotes.trim(),
+
         assignedTo:
           editAssignedTo.trim(),
-        updatedAt: serverTimestamp(),
+
+        updatedAt:
+          serverTimestamp(),
       };
 
-      if (editStatus === "Resolved") {
+      if (
+        editStatus === "Resolved"
+      ) {
         updateData.resolvedAt =
           serverTimestamp();
       } else {
@@ -359,29 +544,30 @@ function AdminComplaintsContent() {
       );
 
       setSaveMessage(
-        "Complaint updated successfully."
+        "Changes saved successfully."
       );
 
-      setSelectedComplaint((previous) =>
-        previous
-          ? {
-              ...previous,
-              status: editStatus,
-              adminNotes:
-                editNotes.trim(),
-              assignedTo:
-                editAssignedTo.trim(),
-            }
-          : previous
+      setSelectedComplaint(
+        (previous) =>
+          previous
+            ? {
+                ...previous,
+                status: editStatus,
+                adminNotes:
+                  editNotes.trim(),
+                assignedTo:
+                  editAssignedTo.trim(),
+              }
+            : previous
       );
-    } catch (error) {
+    } catch (saveErrorValue) {
       console.error(
-        "Error updating complaint:",
-        error
+        "Error saving complaint:",
+        saveErrorValue
       );
 
       setSaveError(
-        "Unable to update this complaint. Please try again."
+        "Unable to save changes. Please try again."
       );
     } finally {
       setSaving(false);
@@ -390,1109 +576,1504 @@ function AdminComplaintsContent() {
 
   /*
    * ============================================================
-   * SIGN OUT
+   * RESET FILTERS
    * ============================================================
    */
 
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-      router.replace("/admin/login");
-    } catch (error) {
-      console.error(
-        "Sign out error:",
-        error
-      );
-    }
+  const resetFilters = () => {
+    setSearchQuery("");
+    setStatusFilter("All");
+    setCategoryFilter("All");
+  };
+
+  /*
+   * ============================================================
+   * REFRESH
+   * ============================================================
+   *
+   * onSnapshot already provides real-time updates.
+   * This simply clears filters and lets the listener
+   * display the current records.
+   */
+
+  const handleRefresh = () => {
+    setError("");
+    setSearchQuery("");
+    setStatusFilter("All");
+    setCategoryFilter("All");
   };
 
   return (
     <div className="min-h-screen bg-slate-50">
 
       {/* ======================================================
-          MOBILE OVERLAY
+          HEADER
       ====================================================== */}
 
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/30 lg:hidden"
-          onClick={() =>
-            setMobileMenuOpen(false)
-          }
-        />
-      )}
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
 
-      {/* ======================================================
-          SIDEBAR
-      ====================================================== */}
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
 
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white transition-transform duration-300 lg:translate-x-0 ${
-          mobileMenuOpen
-            ? "translate-x-0"
-            : "-translate-x-full"
-        }`}
-      >
-        <div className="flex h-full flex-col">
+          <div className="flex min-w-0 items-center gap-3">
 
-          {/* Sidebar Header */}
-          <div className="border-b border-slate-100 p-6">
-            <div className="flex items-center gap-3">
+            <a
+              href="/admin"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
+              title="Back to Admin Dashboard"
+            >
+              <ArrowLeft size={19} />
+            </a>
 
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100">
-                <ClipboardList
-                  size={23}
-                  className="text-violet-600"
-                />
+            <div className="min-w-0">
+
+              <div className="flex items-center gap-2">
+
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+                  <AlertCircle size={19} />
+                </div>
+
+                <div className="min-w-0">
+
+                  <h1 className="truncate text-lg font-bold text-slate-900 sm:text-xl">
+                    Community Concerns
+                  </h1>
+
+                  <p className="hidden text-xs text-slate-500 sm:block">
+                    Review and manage resident
+                    community concerns
+                  </p>
+
+                </div>
+
               </div>
 
-              <div>
-                <p className="font-bold text-slate-900">
-                  e-Barangay
-                </p>
-
-                <p className="text-xs text-slate-500">
-                  Admin Panel
-                </p>
-              </div>
-
-            </div>
-          </div>
-
-          {/* Navigation */}
-          <nav className="flex-1 space-y-1 p-4">
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/admin")
-              }
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-            >
-              <ClipboardList size={18} />
-              Dashboard
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/admin/documents")
-              }
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-            >
-              <ClipboardList size={18} />
-              Document Requests
-            </button>
-
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 rounded-xl bg-violet-50 px-4 py-3 text-sm font-semibold text-violet-700"
-            >
-              <MessageSquareWarning size={18} />
-              Community Concerns
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/admin/assets")
-              }
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-            >
-              <ClipboardList size={18} />
-              Asset Borrowing
-            </button>
-
-            <div className="my-4 border-t border-slate-100" />
-
-            <button
-              type="button"
-              onClick={() =>
-                router.push("/")
-              }
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-            >
-              <ArrowLeft size={18} />
-              Public Portal
-            </button>
-
-          </nav>
-
-          {/* Sidebar Bottom */}
-          <div className="border-t border-slate-100 p-4">
-
-            <div className="mb-3 rounded-xl bg-slate-50 p-3">
-              <p className="text-xs font-medium text-slate-500">
-                Signed in as
-              </p>
-
-              <p className="mt-1 truncate text-sm font-semibold text-slate-800">
-                {adminEmail ||
-                  "Barangay Administrator"}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-            >
-              <LogOut size={18} />
-              Sign Out
-            </button>
-
-          </div>
-        </div>
-      </aside>
-
-      {/* ======================================================
-          MAIN AREA
-      ====================================================== */}
-
-      <div className="lg:pl-72">
-
-        {/* Mobile Header */}
-        <div className="sticky top-0 z-40 flex items-center justify-between border-b border-slate-200 bg-white px-4 py-4 lg:hidden">
-
-          <div className="flex items-center gap-3">
-
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100">
-              <MessageSquareWarning
-                size={21}
-                className="text-violet-600"
-              />
-            </div>
-
-            <div>
-              <p className="font-bold text-slate-900">
-                Community Concerns
-              </p>
-
-              <p className="text-xs text-slate-500">
-                Admin Panel
-              </p>
             </div>
 
           </div>
 
           <button
             type="button"
-            onClick={() =>
-              setMobileMenuOpen(
-                !mobileMenuOpen
-              )
-            }
-            className="rounded-xl border border-slate-200 p-2"
+            onClick={handleRefresh}
+            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
           >
-            <Menu size={22} />
+            <RefreshCw size={16} />
+            <span className="hidden sm:inline">
+              Refresh
+            </span>
           </button>
 
         </div>
 
-        {/* ==================================================
-            CONTENT
-        ================================================== */}
+      </header>
 
-        <main className="min-w-0">
+      {/* ======================================================
+          MAIN
+      ====================================================== */}
 
-          <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
 
-            {/* ==================================================
-                PAGE HEADER
-            ================================================== */}
+        {/* ====================================================
+            PAGE INTRO
+        ==================================================== */}
 
-            <div className="mb-8">
+        <div className="mb-6">
 
-              <p className="text-sm font-medium text-violet-600">
-                Administration
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+
+            <div>
+
+              <p className="text-sm font-semibold text-violet-600">
+                Barangay Poblacion North
               </p>
 
-              <div className="mt-1 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-
-                <div>
-                  <h1 className="text-3xl font-bold text-slate-900">
-                    Community Concerns
-                  </h1>
-
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                    Review and manage concerns submitted
-                    through the public Barangay Poblacion
-                    North portal.
-                  </p>
-                </div>
-
-                <div className="hidden items-center gap-3 sm:flex">
-
-                 
-
-                  
-
-                </div>
-
-              </div>
-            </div>
-
-            {/* ==================================================
-                SUMMARY CARDS
-            ================================================== */}
-
-            <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-
-              <SummaryCard
-                label="Total Concerns"
-                value={totalCount}
-                icon={
-                  <MessageSquareWarning
-                    size={20}
-                  />
-                }
-                iconClass="bg-violet-100 text-violet-700"
-              />
-
-              <SummaryCard
-                label="Pending"
-                value={pendingCount}
-                icon={
-                  <AlertCircle size={20} />
-                }
-                iconClass="bg-amber-100 text-amber-700"
-              />
-
-              <SummaryCard
-                label="Under Review"
-                value={underReviewCount}
-                icon={<Eye size={20} />}
-                iconClass="bg-blue-100 text-blue-700"
-              />
-
-              <SummaryCard
-                label="For Action"
-                value={forActionCount}
-                icon={
-                  <ClipboardList size={20} />
-                }
-                iconClass="bg-orange-100 text-orange-700"
-              />
-
-              <SummaryCard
-                label="In Progress"
-                value={inProgressCount}
-                icon={
-                  <Loader2 size={20} />
-                }
-                iconClass="bg-violet-100 text-violet-700"
-              />
-
-              <SummaryCard
-                label="Resolved"
-                value={resolvedCount}
-                icon={
-                  <CheckCircle2 size={20} />
-                }
-                iconClass="bg-green-100 text-green-700"
-              />
-
-            </div>
-
-            {/* ==================================================
-                ERROR
-            ================================================== */}
-
-            {firestoreError && (
-              <div className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                {firestoreError}
-              </div>
-            )}
-
-            {/* ==================================================
-                SEARCH / FILTERS
-            ================================================== */}
-
-            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4">
-
-              <div className="grid gap-4 lg:grid-cols-2">
-
-                <div className="relative">
-
-                  <Search
-                    size={18}
-                    className="absolute left-4 top-3.5 text-slate-400"
-                  />
-
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(event) =>
-                      setSearchTerm(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Search name, description, location..."
-                    className="w-full rounded-xl border border-slate-200 py-3 pl-11 pr-4 text-sm outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-                  />
-
-                </div>
-
-                <div className="relative">
-
-                  <Filter
-                    size={18}
-                    className="absolute left-4 top-3.5 text-slate-400"
-                  />
-
-                  <select
-                    value={statusFilter}
-                    onChange={(event) =>
-                      setStatusFilter(
-                        event.target.value as
-                          | "All"
-                          | ComplaintStatus
-                      )
-                    }
-                    className="w-full appearance-none rounded-xl border border-slate-200 py-3 pl-11 pr-4 text-sm outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-                  >
-                    <option value="All">
-                      All Statuses
-                    </option>
-
-                    {statusOptions.map(
-                      (status) => (
-                        <option
-                          key={status}
-                          value={status}
-                        >
-                          {status}
-                        </option>
-                      )
-                    )}
-                  </select>
-
-                </div>
-
-              </div>
-            </div>
-
-            {/* ==================================================
-                TABLE / CARDS
-            ================================================== */}
-
-            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-
-              {loading ? (
-                <div className="flex min-h-72 items-center justify-center">
-
-                  <div className="text-center">
-
-                    <Loader2
-                      size={32}
-                      className="mx-auto animate-spin text-violet-600"
-                    />
-
-                    <p className="mt-3 text-sm text-slate-500">
-                      Loading community concerns...
-                    </p>
-
-                  </div>
-
-                </div>
-              ) : filteredComplaints.length === 0 ? (
-
-                <div className="px-6 py-16 text-center">
-
-                  <MessageSquareWarning
-                    size={42}
-                    className="mx-auto text-slate-300"
-                  />
-
-                  <p className="mt-4 font-semibold text-slate-700">
-                    No community concerns found
-                  </p>
-
-                  <p className="mt-1 text-sm text-slate-500">
-                    New resident concerns will appear here.
-                  </p>
-
-                </div>
-
-              ) : (
-                <>
-                  {/* Desktop */}
-                  <div className="hidden overflow-x-auto lg:block">
-
-                    <table className="w-full min-w-[1000px]">
-
-                      <thead className="border-b border-slate-100 bg-slate-50">
-
-                        <tr>
-
-                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Resident
-                          </th>
-
-                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Concern
-                          </th>
-
-                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Location
-                          </th>
-
-                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Evidence
-                          </th>
-
-                          <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Status
-                          </th>
-
-                          <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Action
-                          </th>
-
-                        </tr>
-
-                      </thead>
-
-                      <tbody className="divide-y divide-slate-100">
-
-                        {filteredComplaints.map(
-                          (complaint) => (
-                            <tr
-                              key={complaint.id}
-                              className="hover:bg-slate-50"
-                            >
-
-                              <td className="px-6 py-5">
-
-                                <div className="flex items-center gap-3">
-
-                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700">
-
-                                    {complaint.submissionType ===
-                                    "anonymous" ? (
-                                      <MessageSquareWarning
-                                        size={18}
-                                      />
-                                    ) : (
-                                      <User
-                                        size={18}
-                                      />
-                                    )}
-
-                                  </div>
-
-                                  <div>
-
-                                    <p className="font-semibold text-slate-900">
-                                      {complaint.submissionType ===
-                                      "anonymous"
-                                        ? "Anonymous"
-                                        : complaint.fullName ||
-                                          "Named Resident"}
-                                    </p>
-
-                                    <p className="mt-1 text-xs text-slate-500">
-                                      {
-                                        complaint.submittedAt
-                                      }
-                                    </p>
-
-                                  </div>
-
-                                </div>
-
-                              </td>
-
-                              <td className="max-w-xs px-6 py-5">
-
-                                <p className="font-medium text-slate-800">
-                                  {complaint.category}
-                                </p>
-
-                                <p className="mt-1 line-clamp-2 text-sm text-slate-600">
-                                  {
-                                    complaint.description
-                                  }
-                                </p>
-
-                              </td>
-
-                              <td className="px-6 py-5">
-
-                                <p className="max-w-[180px] text-sm text-slate-600">
-                                  {complaint.locationOfConcern ||
-                                    "Not provided"}
-                                </p>
-
-                              </td>
-
-                              <td className="px-6 py-5">
-
-                                {complaint.evidenceUrl ? (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setPhotoModalUrl(
-                                        complaint.evidenceUrl
-                                      )
-                                    }
-                                    className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
-                                  >
-                                    <FileImage
-                                      size={15}
-                                    />
-                                    View Photo
-                                  </button>
-                                ) : (
-                                  <span className="text-xs text-slate-400">
-                                    No photo
-                                  </span>
-                                )}
-
-                              </td>
-
-                              <td className="px-6 py-5">
-
-                                <StatusBadge
-                                  status={
-                                    complaint.status
-                                  }
-                                />
-
-                              </td>
-
-                              <td className="px-6 py-5 text-right">
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openComplaint(
-                                      complaint
-                                    )
-                                  }
-                                  className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-700"
-                                >
-                                  Review
-                                </button>
-
-                              </td>
-
-                            </tr>
-                          )
-                        )}
-
-                      </tbody>
-
-                    </table>
-
-                  </div>
-
-                  {/* Mobile */}
-                  <div className="divide-y divide-slate-100 lg:hidden">
-
-                    {filteredComplaints.map(
-                      (complaint) => (
-                        <div
-                          key={complaint.id}
-                          className="p-5"
-                        >
-
-                          <div className="flex items-start justify-between gap-4">
-
-                            <div className="flex items-center gap-3">
-
-                              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700">
-
-                                {complaint.submissionType ===
-                                "anonymous" ? (
-                                  <MessageSquareWarning
-                                    size={19}
-                                  />
-                                ) : (
-                                  <User
-                                    size={19}
-                                  />
-                                )}
-
-                              </div>
-
-                              <div>
-
-                                <p className="font-semibold text-slate-900">
-                                  {complaint.submissionType ===
-                                  "anonymous"
-                                    ? "Anonymous"
-                                    : complaint.fullName ||
-                                      "Named Resident"}
-                                </p>
-
-                                <p className="mt-1 text-xs text-slate-500">
-                                  {
-                                    complaint.submittedAt
-                                  }
-                                </p>
-
-                              </div>
-
-                            </div>
-
-                            <StatusBadge
-                              status={
-                                complaint.status
-                              }
-                            />
-
-                          </div>
-
-                          <p className="mt-4 text-sm font-semibold text-slate-800">
-                            {complaint.category}
-                          </p>
-
-                          <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">
-                            {
-                              complaint.description
-                            }
-                          </p>
-
-                          <p className="mt-3 text-sm text-slate-500">
-                            {complaint.locationOfConcern ||
-                              "Location not provided"}
-                          </p>
-
-                          {complaint.evidenceUrl && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setPhotoModalUrl(
-                                  complaint.evidenceUrl
-                                )
-                              }
-                              className="mt-4 inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700"
-                            >
-                              <FileImage size={15} />
-                              View Photo
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openComplaint(
-                                complaint
-                              )
-                            }
-                            className="mt-4 w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
-                          >
-                            View & Manage Concern
-                          </button>
-
-                        </div>
-                      )
-                    )}
-
-                  </div>
-                </>
-              )}
+              <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                Community Concern Management
+              </h2>
+
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                Review resident-submitted concerns,
+                inspect photo evidence, update
+                processing status, assign personnel,
+                and add administrative notes.
+              </p>
 
             </div>
 
           </div>
 
-        </main>
-      </div>
+        </div>
 
-      {/* ======================================================
-          COMPLAINT DETAILS MODAL
-      ====================================================== */}
+        {/* ====================================================
+            SUMMARY CARDS
+        ==================================================== */}
 
-      {selectedComplaint && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
 
-          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl">
+          <SummaryCard
+            label="Total"
+            value={summary.total}
+            icon={<FileText size={18} />}
+            iconClass="bg-slate-100 text-slate-700"
+          />
 
-            {/* Modal Header */}
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-5 py-5 sm:px-7">
+          <SummaryCard
+            label="Pending"
+            value={summary.pending}
+            icon={<Clock size={18} />}
+            iconClass="bg-amber-100 text-amber-700"
+          />
 
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-violet-600">
-                  Community Concern
-                </p>
+          <SummaryCard
+            label="Under Review"
+            value={summary.underReview}
+            icon={<Eye size={18} />}
+            iconClass="bg-blue-100 text-blue-700"
+          />
 
-                <h2 className="mt-1 text-xl font-bold text-slate-900">
-                  Concern Details
-                </h2>
-              </div>
+          <SummaryCard
+            label="For Action"
+            value={summary.inProgress}
+            icon={<AlertCircle size={18} />}
+            iconClass="bg-violet-100 text-violet-700"
+          />
 
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedComplaint(null)
-                }
-                className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
-              >
-                <X size={22} />
-              </button>
+          <SummaryCard
+            label="Resolved"
+            value={summary.resolved}
+            icon={<CheckCircle2 size={18} />}
+            iconClass="bg-green-100 text-green-700"
+          />
+
+          <SummaryCard
+            label="With Photo"
+            value={summary.withPhoto}
+            icon={<FileImage size={18} />}
+            iconClass="bg-purple-100 text-purple-700"
+          />
+
+        </div>
+
+        {/* ====================================================
+            PHOTO WARNING
+        ==================================================== */}
+
+        {summary.failedPhotos > 0 && (
+          <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+
+            <AlertCircle
+              size={20}
+              className="mt-0.5 shrink-0 text-red-600"
+            />
+
+            <div>
+
+              <p className="text-sm font-bold text-red-800">
+                {summary.failedPhotos} photo upload
+                {summary.failedPhotos !== 1
+                  ? "s"
+                  : ""}{" "}
+                failed
+              </p>
+
+              <p className="mt-1 text-xs leading-5 text-red-700">
+                These complaints were submitted,
+                but their supporting photo was not
+                successfully uploaded to Firebase
+                Storage.
+              </p>
 
             </div>
 
-            <div className="space-y-7 p-5 sm:p-7">
+          </div>
+        )}
 
-              {/* Submission Information */}
-              <section>
+        {/* ====================================================
+            FILTERS
+        ==================================================== */}
 
-                <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-slate-400">
-                  Submission Information
-                </h3>
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
 
-                <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
 
-                  <InfoBox
-                    label="Submission Type"
-                    value={
-                      selectedComplaint.submissionType ===
-                      "anonymous"
-                        ? "Anonymous"
-                        : "Provide My Name"
-                    }
-                  />
+            <div className="flex-1">
 
-                  <InfoBox
-                    label="Name"
-                    value={
-                      selectedComplaint.submissionType ===
-                      "anonymous"
-                        ? "Anonymous"
-                        : selectedComplaint.fullName ||
-                          "Not provided"
-                    }
-                  />
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">
+                Search
+              </label>
 
-                  <InfoBox
-                    label="Category"
-                    value={
-                      selectedComplaint.category
-                    }
-                  />
+              <div className="relative">
 
-                  <InfoBox
-                    label="Submitted"
-                    value={
-                      selectedComplaint.submittedAt
-                    }
-                  />
+                <Search
+                  size={18}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
 
-                </div>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(event) =>
+                    setSearchQuery(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Search name, location, category, description..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                />
 
-              </section>
+              </div>
 
-              {/* Concern Information */}
-              <section>
+            </div>
 
-                <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-slate-400">
-                  Concern Information
-                </h3>
+            <div className="w-full lg:w-52">
 
-                <div className="space-y-4">
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">
+                Status
+              </label>
 
-                  <InfoBox
-                    label="Location of Concern"
-                    value={
-                      selectedComplaint.locationOfConcern ||
-                      "Not provided"
-                    }
-                  />
+              <div className="relative">
 
-                  <InfoBox
-                    label="Date of Incident"
-                    value={
-                      selectedComplaint.incidentDate ||
-                      "Not provided"
-                    }
-                  />
+                <Filter
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
 
-                  <div>
+                <select
+                  value={statusFilter}
+                  onChange={(event) =>
+                    setStatusFilter(
+                      event.target
+                        .value as
+                        | "All"
+                        | ComplaintStatus
+                    )
+                  }
+                  className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 py-3 pl-9 pr-9 text-sm outline-none focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                >
+                  <option value="All">
+                    All Statuses
+                  </option>
 
-                    <p className="mb-2 text-xs font-semibold text-slate-400">
-                      Description
-                    </p>
+                  {statusOptions.map(
+                    (status) => (
+                      <option
+                        key={status}
+                        value={status}
+                      >
+                        {status}
+                      </option>
+                    )
+                  )}
+                </select>
 
-                    <div className="rounded-xl bg-slate-50 p-4">
+                <ChevronDown
+                  size={16}
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
 
-                      <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
+              </div>
+
+            </div>
+
+            <div className="w-full lg:w-56">
+
+              <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-400">
+                Category
+              </label>
+
+              <div className="relative">
+
+                <select
+                  value={categoryFilter}
+                  onChange={(event) =>
+                    setCategoryFilter(
+                      event.target.value
+                    )
+                  }
+                  className="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pr-9 text-sm outline-none focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                >
+                  <option value="All">
+                    All Categories
+                  </option>
+
+                  {categoryOptions.map(
+                    (category) => (
+                      <option
+                        key={category}
+                        value={category}
+                      >
+                        {category}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                <ChevronDown
+                  size={16}
+                  className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                />
+
+              </div>
+
+            </div>
+
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+            >
+              Reset
+            </button>
+
+          </div>
+
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
+
+            <p className="text-xs text-slate-500">
+              Showing{" "}
+              <span className="font-bold text-slate-700">
+                {filteredComplaints.length}
+              </span>{" "}
+              of{" "}
+              <span className="font-bold text-slate-700">
+                {complaints.length}
+              </span>{" "}
+              concerns
+            </p>
+
+            <div className="hidden items-center gap-2 text-xs text-slate-400 sm:flex">
+              <span className="h-2 w-2 rounded-full bg-green-500" />
+              Live updates enabled
+            </div>
+
+          </div>
+
+        </section>
+
+        {/* ====================================================
+            ERROR
+        ==================================================== */}
+
+        {error && (
+          <div className="mt-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+
+            <AlertCircle
+              size={20}
+              className="mt-0.5 shrink-0 text-red-600"
+            />
+
+            <div>
+              <p className="text-sm font-bold text-red-800">
+                Error
+              </p>
+
+              <p className="mt-1 text-sm text-red-700">
+                {error}
+              </p>
+            </div>
+
+          </div>
+        )}
+
+        {/* ====================================================
+            LOADING
+        ==================================================== */}
+
+        {loading ? (
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+
+            <Loader2
+              size={32}
+              className="mx-auto animate-spin text-violet-600"
+            />
+
+            <p className="mt-4 text-sm font-semibold text-slate-700">
+              Loading community concerns...
+            </p>
+
+            <p className="mt-1 text-xs text-slate-400">
+              Connecting to the barangay records.
+            </p>
+
+          </div>
+        ) : filteredComplaints.length ===
+          0 ? (
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <MessageSquare size={28} />
+            </div>
+
+            <h3 className="mt-5 text-lg font-bold text-slate-800">
+              No community concerns found
+            </h3>
+
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+              There are no complaints matching
+              your current search and filter
+              settings.
+            </p>
+
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="mt-5 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+            >
+              Clear Filters
+            </button>
+
+          </div>
+        ) : (
+          <>
+            {/* ==================================================
+                DESKTOP TABLE
+            ================================================== */}
+
+            <div className="mt-6 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block">
+
+              <div className="overflow-x-auto">
+
+                <table className="w-full min-w-[1200px]">
+
+                  <thead className="border-b border-slate-200 bg-slate-50">
+
+                    <tr>
+
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Concern
+                      </th>
+
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Resident
+                      </th>
+
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Location
+                      </th>
+
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Evidence
+                      </th>
+
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Status
+                      </th>
+
+                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Submitted
+                      </th>
+
+                      <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Action
+                      </th>
+
+                    </tr>
+
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-100">
+
+                    {filteredComplaints.map(
+                      (complaint) => (
+                        <tr
+                          key={
+                            complaint.id
+                          }
+                          className="transition hover:bg-slate-50/70"
+                        >
+
+                          <td className="px-6 py-5">
+
+                            <div className="max-w-xs">
+
+                              <p className="font-semibold text-slate-800">
+                                {
+                                  complaint.category
+                                }
+                              </p>
+
+                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                                {
+                                  complaint.description
+                                }
+                              </p>
+
+                              <p className="mt-2 font-mono text-[10px] text-slate-400">
+                                ID:{" "}
+                                {
+                                  complaint.id
+                                }
+                              </p>
+
+                            </div>
+
+                          </td>
+
+                          <td className="px-6 py-5">
+
+                            {complaint.submissionType ===
+                            "named" ? (
+                              <div>
+
+                                <div className="flex items-center gap-2">
+
+                                  <User
+                                    size={15}
+                                    className="text-violet-500"
+                                  />
+
+                                  <p className="text-sm font-semibold text-slate-800">
+                                    {complaint.fullName ||
+                                      "Unnamed"}
+                                  </p>
+
+                                </div>
+
+                                {complaint.purokStreet && (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {
+                                      complaint.purokStreet
+                                    }
+                                  </p>
+                                )}
+
+                              </div>
+                            ) : (
+                              <div>
+
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                                  <ShieldCheck size={12} />
+                                  Anonymous
+                                </span>
+
+                              </div>
+                            )}
+
+                          </td>
+
+                          <td className="px-6 py-5">
+
+                            <div className="flex max-w-xs items-start gap-2">
+
+                              <MapPin
+                                size={15}
+                                className="mt-0.5 shrink-0 text-violet-500"
+                              />
+
+                              <span className="text-sm text-slate-600">
+                                {
+                                  complaint.locationOfConcern ||
+                                  "Not provided"
+                                }
+                              </span>
+
+                            </div>
+
+                          </td>
+
+                          {/* ====================================
+                              PHOTO EVIDENCE
+                          ==================================== */}
+
+                          <td className="px-6 py-5">
+
+                            {complaint.evidenceUrl ? (
+                              <div className="space-y-2">
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPhotoModalUrl(
+                                      complaint.evidenceUrl
+                                    )
+                                  }
+                                  className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                                >
+                                  <FileImage
+                                    size={15}
+                                  />
+                                  View Photo
+                                </button>
+
+                                <p className="text-[10px] font-medium text-green-600">
+                                  Photo uploaded
+                                </p>
+
+                              </div>
+                            ) : complaint.evidenceUploadStatus ===
+                              "Uploading" ? (
+                              <span className="inline-flex items-center gap-2 text-xs font-medium text-blue-600">
+                                <Loader2
+                                  size={14}
+                                  className="animate-spin"
+                                />
+                                Uploading...
+                              </span>
+                            ) : complaint.evidenceUploadStatus ===
+                              "Failed" ||
+                              complaint.evidenceUploadStatus ===
+                                "Failed - Image Too Large" ? (
+                              <div>
+
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-600">
+                                  <AlertCircle size={12} />
+                                  Upload Failed
+                                </span>
+
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400">
+                                No photo
+                              </span>
+                            )}
+
+                          </td>
+
+                          <td className="px-6 py-5">
+
+                            <span
+                              className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-bold ${getStatusClasses(
+                                complaint.status
+                              )}`}
+                            >
+                              {
+                                complaint.status
+                              }
+                            </span>
+
+                          </td>
+
+                          <td className="px-6 py-5">
+
+                            <p className="text-xs text-slate-500">
+                              {
+                                complaint.submittedAt
+                              }
+                            </p>
+
+                          </td>
+
+                          <td className="px-6 py-5 text-right">
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openComplaint(
+                                  complaint
+                                )
+                              }
+                              className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-violet-700"
+                            >
+                              <Eye size={15} />
+                              View Details
+                            </button>
+
+                          </td>
+
+                        </tr>
+                      )
+                    )}
+
+                  </tbody>
+
+                </table>
+
+              </div>
+
+            </div>
+
+            {/* ==================================================
+                MOBILE CARDS
+            ================================================== */}
+
+            <div className="mt-6 space-y-4 lg:hidden">
+
+              {filteredComplaints.map(
+                (complaint) => (
+                  <article
+                    key={complaint.id}
+                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                  >
+
+                    <div className="border-b border-slate-100 p-5">
+
+                      <div className="flex items-start justify-between gap-3">
+
+                        <div className="min-w-0">
+
+                          <p className="text-xs font-bold uppercase tracking-wider text-violet-600">
+                            {
+                              complaint.category
+                            }
+                          </p>
+
+                          <h3 className="mt-1 font-bold text-slate-900">
+                            {
+                              complaint.description
+                            }
+                          </h3>
+
+                        </div>
+
+                        <span
+                          className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold ${getStatusClasses(
+                            complaint.status
+                          )}`}
+                        >
+                          {
+                            complaint.status
+                          }
+                        </span>
+
+                      </div>
+
+                      <p className="mt-3 font-mono text-[10px] text-slate-400">
+                        ID:{" "}
                         {
-                          selectedComplaint.description
+                          complaint.id
                         }
                       </p>
 
                     </div>
 
-                  </div>
+                    <div className="space-y-4 p-5">
 
-                </div>
+                      <div>
 
-              </section>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Resident
+                        </p>
 
-              {/* Evidence */}
-              <section>
+                        {complaint.submissionType ===
+                        "named" ? (
+                          <div className="mt-1">
 
-                <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-slate-400">
-                  Photo of Proof / Supporting Evidence
-                </h3>
+                            <p className="text-sm font-semibold text-slate-800">
+                              {
+                                complaint.fullName ||
+                                "Unnamed"
+                              }
+                            </p>
 
-                {selectedComplaint.evidenceUrl ? (
+                            {complaint.purokStreet && (
+                              <p className="text-xs text-slate-500">
+                                {
+                                  complaint.purokStreet
+                                }
+                              </p>
+                            )}
 
-                  <div className="overflow-hidden rounded-2xl border border-violet-100 bg-violet-50">
+                          </div>
+                        ) : (
+                          <span className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                            <ShieldCheck size={12} />
+                            Anonymous
+                          </span>
+                        )}
 
-                    <img
-                      src={
-                        selectedComplaint.evidenceUrl
-                      }
-                      alt="Complaint supporting evidence"
-                      className="max-h-[420px] w-full object-contain bg-slate-100"
-                    />
+                      </div>
 
-                    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
 
-                      <div className="flex items-center gap-3">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Location
+                        </p>
 
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-violet-600">
-                          <FileImage
-                            size={19}
+                        <div className="mt-1 flex items-start gap-2">
+
+                          <MapPin
+                            size={14}
+                            className="mt-0.5 shrink-0 text-violet-500"
                           />
-                        </div>
 
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">
-                            Supporting photo attached
+                          <p className="text-sm text-slate-600">
+                            {
+                              complaint.locationOfConcern ||
+                              "Not provided"
+                            }
                           </p>
 
-                          <p className="text-xs text-slate-500">
-                            Uploaded by the resident
-                          </p>
                         </div>
 
                       </div>
 
+                      <div>
+
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Photo Evidence
+                        </p>
+
+                        {complaint.evidenceUrl ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPhotoModalUrl(
+                                complaint.evidenceUrl
+                              )
+                            }
+                            className="mt-2 inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700"
+                          >
+                            <FileImage size={15} />
+                            View Photo
+                          </button>
+                        ) : complaint.evidenceUploadStatus ===
+                          "Uploading" ? (
+                          <p className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-blue-600">
+                            <Loader2
+                              size={14}
+                              className="animate-spin"
+                            />
+                            Photo uploading...
+                          </p>
+                        ) : complaint.evidenceUploadStatus ===
+                          "Failed" ||
+                          complaint.evidenceUploadStatus ===
+                            "Failed - Image Too Large" ? (
+                          <p className="mt-2 text-xs font-medium text-red-500">
+                            Photo upload failed
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-xs text-slate-400">
+                            No photo provided
+                          </p>
+                        )}
+
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+
+                        <p className="text-xs text-slate-400">
+                          {
+                            complaint.submittedAt
+                          }
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openComplaint(
+                              complaint
+                            )
+                          }
+                          className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-bold text-white"
+                        >
+                          <Eye size={15} />
+                          Details
+                        </button>
+
+                      </div>
+
+                    </div>
+
+                  </article>
+                )
+              )}
+
+            </div>
+          </>
+        )}
+
+      </main>
+
+      {/* ======================================================
+          COMPLAINT DETAIL MODAL
+      ====================================================== */}
+
+      {selectedComplaint && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+
+          <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+
+            {/* Modal Header */}
+
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
+
+              <div className="min-w-0">
+
+                <p className="text-xs font-bold uppercase tracking-wider text-violet-600">
+                  Community Concern
+                </p>
+
+                <h2 className="mt-1 truncate text-lg font-bold text-slate-900 sm:text-xl">
+                  {
+                    selectedComplaint.category
+                  }
+                </h2>
+
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedComplaint(
+                    null
+                  )
+                }
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50"
+              >
+                <X size={19} />
+              </button>
+
+            </div>
+
+            {/* Modal Content */}
+
+            <div className="overflow-y-auto">
+
+              <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-2">
+
+                {/* ==================================================
+                    LEFT
+                ================================================== */}
+
+                <div className="space-y-6">
+
+                  {/* Resident */}
+
+                  <section>
+
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Resident Information
+                    </h3>
+
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+
+                      <div className="flex items-start gap-3">
+
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
+                          {selectedComplaint.submissionType ===
+                          "named" ? (
+                            <User size={18} />
+                          ) : (
+                            <ShieldCheck size={18} />
+                          )}
+                        </div>
+
+                        <div className="min-w-0">
+
+                          <p className="text-sm font-bold text-slate-800">
+                            {selectedComplaint.submissionType ===
+                            "named"
+                              ? selectedComplaint.fullName ||
+                                "Unnamed"
+                              : "Anonymous Resident"}
+                          </p>
+
+                          {selectedComplaint.submissionType ===
+                            "named" &&
+                            selectedComplaint.purokStreet && (
+                              <p className="mt-1 text-xs text-slate-500">
+                                {
+                                  selectedComplaint.purokStreet
+                                }
+                              </p>
+                            )}
+
+                          <span className="mt-2 inline-flex rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold text-slate-500">
+                            {selectedComplaint.submissionType ===
+                            "named"
+                              ? "Named Submission"
+                              : "Anonymous Submission"}
+                          </span>
+
+                        </div>
+
+                      </div>
+
+                    </div>
+
+                  </section>
+
+                  {/* Concern */}
+
+                  <section>
+
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Concern Details
+                    </h3>
+
+                    <div className="space-y-4">
+
+                      <div>
+
+                        <p className="text-xs font-semibold text-slate-400">
+                          Category
+                        </p>
+
+                        <p className="mt-1 text-sm font-semibold text-slate-800">
+                          {
+                            selectedComplaint.category
+                          }
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <p className="text-xs font-semibold text-slate-400">
+                          Description
+                        </p>
+
+                        <div className="mt-1 rounded-xl bg-slate-50 p-4">
+
+                          <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                            {
+                              selectedComplaint.description
+                            }
+                          </p>
+
+                        </div>
+
+                      </div>
+
+                      <div>
+
+                        <p className="text-xs font-semibold text-slate-400">
+                          Location of Concern
+                        </p>
+
+                        <div className="mt-1 flex items-start gap-2">
+
+                          <MapPin
+                            size={16}
+                            className="mt-0.5 shrink-0 text-violet-500"
+                          />
+
+                          <p className="text-sm leading-6 text-slate-700">
+                            {
+                              selectedComplaint.locationOfConcern ||
+                              "Not provided"
+                            }
+                          </p>
+
+                        </div>
+
+                      </div>
+
+                      <div>
+
+                        <p className="text-xs font-semibold text-slate-400">
+                          Incident Date
+                        </p>
+
+                        <p className="mt-1 text-sm text-slate-700">
+                          {
+                            selectedComplaint.incidentDate ||
+                            "Not provided"
+                          }
+                        </p>
+
+                      </div>
+
+                      <div>
+
+                        <p className="text-xs font-semibold text-slate-400">
+                          Submitted
+                        </p>
+
+                        <p className="mt-1 text-sm text-slate-700">
+                          {
+                            selectedComplaint.submittedAt
+                          }
+                        </p>
+
+                      </div>
+
+                    </div>
+
+                  </section>
+
+                  {/* ==================================================
+                      PHOTO EVIDENCE
+                  ================================================== */}
+
+                  <section>
+
+                    <div className="mb-3 flex items-center justify-between gap-3">
+
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Photo of Proof / Supporting Evidence
+                      </h3>
+
+                      {selectedComplaint.evidenceUploadStatus && (
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${getEvidenceStatusClasses(
+                            selectedComplaint.evidenceUploadStatus
+                          )}`}
+                        >
+                          {
+                            selectedComplaint.evidenceUploadStatus
+                          }
+                        </span>
+                      )}
+
+                    </div>
+
+                    {selectedComplaint.evidenceUrl ? (
+                      <div className="overflow-hidden rounded-2xl border border-violet-100 bg-violet-50">
+
+                        <div className="bg-slate-100 p-3">
+
+                          <img
+                            src={
+                              selectedComplaint.evidenceUrl
+                            }
+                            alt="Community concern supporting evidence"
+                            className="max-h-[420px] w-full rounded-xl object-contain"
+                          />
+
+                        </div>
+
+                        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+
+                          <div className="flex items-center gap-3">
+
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-violet-600">
+                              <FileImage size={19} />
+                            </div>
+
+                            <div>
+
+                              <p className="text-sm font-semibold text-slate-800">
+                                Supporting photo attached
+                              </p>
+
+                              <p className="text-xs text-slate-500">
+                                Resident-provided
+                                evidence
+                              </p>
+
+                            </div>
+
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setPhotoModalUrl(
+                                selectedComplaint.evidenceUrl
+                              )
+                            }
+                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-violet-700"
+                          >
+                            <Eye size={15} />
+                            View Full Photo
+                          </button>
+
+                        </div>
+
+                      </div>
+                    ) : selectedComplaint.evidenceUploadStatus ===
+                      "Uploading" ? (
+                      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-8 text-center">
+
+                        <Loader2
+                          size={30}
+                          className="mx-auto animate-spin text-blue-600"
+                        />
+
+                        <p className="mt-3 text-sm font-semibold text-blue-700">
+                          Photo is still uploading
+                        </p>
+
+                        <p className="mt-1 text-xs leading-5 text-blue-600">
+                          The resident submitted a
+                          photo and it is still being
+                          uploaded.
+                        </p>
+
+                      </div>
+                    ) : selectedComplaint.evidenceUploadStatus ===
+                        "Failed" ||
+                      selectedComplaint.evidenceUploadStatus ===
+                        "Failed - Image Too Large" ? (
+                      <div className="rounded-2xl border border-red-200 bg-red-50 p-8 text-center">
+
+                        <AlertCircle
+                          size={30}
+                          className="mx-auto text-red-500"
+                        />
+
+                        <p className="mt-3 text-sm font-semibold text-red-700">
+                          Photo upload failed
+                        </p>
+
+                        <p className="mt-1 text-xs leading-5 text-red-600">
+                          The complaint was submitted,
+                          but the supporting photo was
+                          not successfully uploaded.
+                        </p>
+
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+
+                        <FileImage
+                          size={28}
+                          className="mx-auto text-slate-300"
+                        />
+
+                        <p className="mt-3 text-sm font-medium text-slate-500">
+                          No supporting photo was
+                          attached.
+                        </p>
+
+                        <p className="mt-1 text-xs text-slate-400">
+                          The resident did not provide
+                          photo evidence.
+                        </p>
+
+                      </div>
+                    )}
+
+                  </section>
+
+                </div>
+
+                {/* ==================================================
+                    RIGHT
+                ================================================== */}
+
+                <div className="space-y-6">
+
+                  {/* Update */}
+
+                  <section>
+
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Process Complaint
+                    </h3>
+
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+
+                      <div>
+
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">
+                          Status
+                        </label>
+
+                        <select
+                          value={editStatus}
+                          onChange={(event) =>
+                            setEditStatus(
+                              event.target
+                                .value as ComplaintStatus
+                            )
+                          }
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium outline-none transition focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                        >
+                          {statusOptions.map(
+                            (status) => (
+                              <option
+                                key={status}
+                                value={status}
+                              >
+                                {status}
+                              </option>
+                            )
+                          )}
+                        </select>
+
+                      </div>
+
+                      <div className="mt-4">
+
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">
+                          Assigned Personnel
+                        </label>
+
+                        <input
+                          type="text"
+                          value={
+                            editAssignedTo
+                          }
+                          onChange={(event) =>
+                            setEditAssignedTo(
+                              event.target
+                                .value
+                            )
+                          }
+                          placeholder="Enter personnel name"
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none transition focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                        />
+
+                      </div>
+
+                      <div className="mt-4">
+
+                        <label className="mb-2 block text-sm font-semibold text-slate-700">
+                          Admin Notes
+                        </label>
+
+                        <textarea
+                          value={editNotes}
+                          onChange={(event) =>
+                            setEditNotes(
+                              event.target.value
+                            )
+                          }
+                          rows={7}
+                          placeholder="Add internal notes about this concern..."
+                          className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 outline-none transition focus:border-violet-400 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                        />
+
+                      </div>
+
+                      {saveMessage && (
+                        <div className="mt-4 flex items-start gap-2 rounded-xl border border-green-200 bg-green-50 p-3 text-xs font-medium text-green-700">
+
+                          <CheckCircle2
+                            size={16}
+                            className="mt-0.5 shrink-0"
+                          />
+
+                          {saveMessage}
+
+                        </div>
+                      )}
+
+                      {saveError && (
+                        <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700">
+
+                          <AlertCircle
+                            size={16}
+                            className="mt-0.5 shrink-0"
+                          />
+
+                          {saveError}
+
+                        </div>
+                      )}
+
                       <button
                         type="button"
-                        onClick={() =>
-                          setPhotoModalUrl(
-                            selectedComplaint.evidenceUrl
-                          )
-                        }
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-violet-700"
+                        onClick={saveChanges}
+                        disabled={saving}
+                        className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        <Eye size={15} />
-                        View Full Photo
+                        {saving ? (
+                          <>
+                            <Loader2
+                              size={17}
+                              className="animate-spin"
+                            />
+                            Saving Changes...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle2 size={17} />
+                            Save Changes
+                          </>
+                        )}
                       </button>
 
                     </div>
 
-                  </div>
+                  </section>
 
-                ) : (
+                  {/* Status Guide */}
 
-                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+                  <section>
 
-                    <FileImage
-                      size={28}
-                      className="mx-auto text-slate-300"
-                    />
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Status Guide
+                    </h3>
 
-                    <p className="mt-3 text-sm font-medium text-slate-500">
-                      No supporting photo was attached.
-                    </p>
+                    <div className="space-y-2">
 
-                  </div>
-
-                )}
-
-              </section>
-
-              {/* Administrative Management */}
-              <section className="rounded-2xl border border-violet-100 bg-violet-50 p-5">
-
-                <div className="mb-5">
-
-                  <h3 className="font-bold text-violet-900">
-                    Administrative Management
-                  </h3>
-
-                  <p className="mt-1 text-xs leading-5 text-violet-700">
-                    These fields are for authorized barangay
-                    personnel and are not visible to residents.
-                  </p>
-
-                </div>
-
-                <div className="space-y-5">
-
-                  {/* Status */}
-                  <div>
-
-                    <label
-                      htmlFor="adminStatus"
-                      className="mb-2 block text-sm font-semibold text-slate-700"
-                    >
-                      Status
-                    </label>
-
-                    <select
-                      id="adminStatus"
-                      value={editStatus}
-                      onChange={(e) =>
-                        setEditStatus(
-                          e.target.value as ComplaintStatus
-                        )
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-                    >
                       {statusOptions.map(
                         (status) => (
-                          <option
+                          <div
                             key={status}
-                            value={status}
+                            className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3"
                           >
-                            {status}
-                          </option>
+
+                            <span
+                              className={`h-2.5 w-2.5 rounded-full ${
+                                status ===
+                                "Pending"
+                                  ? "bg-amber-400"
+                                  : status ===
+                                    "Under Review"
+                                  ? "bg-blue-500"
+                                  : status ===
+                                    "For Action"
+                                  ? "bg-orange-500"
+                                  : status ===
+                                    "In Progress"
+                                  ? "bg-violet-500"
+                                  : "bg-green-500"
+                              }`}
+                            />
+
+                            <div>
+
+                              <p className="text-xs font-bold text-slate-700">
+                                {status}
+                              </p>
+
+                              <p className="text-[11px] text-slate-400">
+                                {status ===
+                                "Pending"
+                                  ? "Newly submitted concern"
+                                  : status ===
+                                    "Under Review"
+                                  ? "Being checked by barangay personnel"
+                                  : status ===
+                                    "For Action"
+                                  ? "Requires appropriate action"
+                                  : status ===
+                                    "In Progress"
+                                  ? "Action is currently ongoing"
+                                  : "Concern has been resolved"}
+                              </p>
+
+                            </div>
+
+                          </div>
                         )
                       )}
-                    </select>
 
-                  </div>
+                    </div>
 
-                  {/* Assigned Personnel */}
-                  <div>
+                  </section>
 
-                    <label
-                      htmlFor="assignedTo"
-                      className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700"
-                    >
-                      <UserCheck size={16} />
-                      Assigned Personnel
-                    </label>
+                  {/* Record ID */}
 
-                    <input
-                      id="assignedTo"
-                      type="text"
-                      value={editAssignedTo}
-                      onChange={(e) =>
-                        setEditAssignedTo(
-                          e.target.value
-                        )
-                      }
-                      placeholder="Example: Barangay Secretary"
-                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-                    />
+                  <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
 
-                  </div>
-
-                  {/* Admin Notes */}
-                  <div>
-
-                    <label
-                      htmlFor="adminNotes"
-                      className="mb-2 block text-sm font-semibold text-slate-700"
-                    >
-                      Internal Notes
-                    </label>
-
-                    <textarea
-                      id="adminNotes"
-                      value={editNotes}
-                      onChange={(e) =>
-                        setEditNotes(
-                          e.target.value
-                        )
-                      }
-                      rows={5}
-                      placeholder="Add internal notes, action taken, verification details, or other administrative information..."
-                      className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-                    />
-
-                  </div>
-
-                </div>
-
-              </section>
-
-              {/* Messages */}
-              {saveMessage && (
-                <div className="rounded-xl border border-green-200 bg-green-50 p-4">
-
-                  <div className="flex gap-3">
-
-                    <CheckCircle2
-                      size={19}
-                      className="mt-0.5 shrink-0 text-green-600"
-                    />
-
-                    <p className="text-sm font-medium text-green-700">
-                      {saveMessage}
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Complaint Record ID
                     </p>
 
-                  </div>
-
-                </div>
-              )}
-
-              {saveError && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-
-                  <div className="flex gap-3">
-
-                    <AlertCircle
-                      size={19}
-                      className="mt-0.5 shrink-0 text-red-600"
-                    />
-
-                    <p className="text-sm font-medium text-red-700">
-                      {saveError}
+                    <p className="mt-2 break-all font-mono text-xs text-slate-600">
+                      {
+                        selectedComplaint.id
+                      }
                     </p>
 
-                  </div>
+                  </section>
 
                 </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-6 sm:flex-row sm:justify-end">
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSelectedComplaint(null)
-                  }
-                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  Close
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSaveChanges}
-                  disabled={saving}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-
-                  {saving ? (
-                    <>
-                      <Loader2
-                        size={17}
-                        className="animate-spin"
-                      />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 size={17} />
-                      Save Changes
-                    </>
-                  )}
-
-                </button>
 
               </div>
+
+            </div>
+
+            {/* Modal Footer */}
+
+            <div className="flex shrink-0 justify-end border-t border-slate-200 bg-slate-50 px-5 py-4 sm:px-6">
+
+              <button
+                type="button"
+                onClick={() =>
+                  setSelectedComplaint(
+                    null
+                  )
+                }
+                className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+              >
+                Close
+              </button>
 
             </div>
 
@@ -1502,22 +2083,33 @@ function AdminComplaintsContent() {
       )}
 
       {/* ======================================================
-          PHOTO MODAL
+          FULL PHOTO MODAL
       ====================================================== */}
 
       {photoModalUrl && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4">
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+          onClick={() =>
+            setPhotoModalUrl(null)
+          }
+        >
 
-          <div className="relative flex max-h-[95vh] max-w-6xl items-center justify-center">
+          <div
+            className="relative flex max-h-[95vh] max-w-7xl items-center justify-center"
+            onClick={(event) =>
+              event.stopPropagation()
+            }
+          >
 
             <button
               type="button"
               onClick={() =>
-                setPhotoModalUrl("")
+                setPhotoModalUrl(null)
               }
-              className="absolute right-2 top-2 z-10 rounded-full bg-black/60 p-2 text-white transition hover:bg-black/80"
+              className="absolute right-2 top-2 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/70 text-white transition hover:bg-black"
+              aria-label="Close photo"
             >
-              <X size={22} />
+              <X size={20} />
             </button>
 
             <img
@@ -1553,90 +2145,26 @@ function SummaryCard({
   iconClass: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
 
       <div className="flex items-center justify-between gap-3">
 
-        <div>
-          <p className="text-sm font-medium text-slate-500">
-            {label}
-          </p>
-
-          <p className="mt-3 text-3xl font-bold text-slate-900">
-            {value}
-          </p>
-        </div>
-
         <div
-          className={`flex h-11 w-11 items-center justify-center rounded-xl ${iconClass}`}
+          className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconClass}`}
         >
           {icon}
         </div>
 
       </div>
 
-    </div>
-  );
-}
-
-/*
- * ============================================================
- * STATUS BADGE
- * ============================================================
- */
-
-function StatusBadge({
-  status,
-}: {
-  status: ComplaintStatus;
-}) {
-  return (
-    <span
-      className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusStyles[status]}`}
-    >
-      {status}
-    </span>
-  );
-}
-
-/*
- * ============================================================
- * INFORMATION BOX
- * ============================================================
- */
-
-function InfoBox({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-slate-50 p-4">
-
-      <p className="text-xs font-semibold text-slate-400">
-        {label}
-      </p>
-
-      <p className="mt-1 text-sm font-medium leading-6 text-slate-700">
+      <p className="mt-4 text-2xl font-bold text-slate-900">
         {value}
       </p>
 
+      <p className="mt-1 text-xs font-medium text-slate-500">
+        {label}
+      </p>
+
     </div>
-  );
-}
-
-/*
- * ============================================================
- * PROTECTED ADMIN PAGE
- * ============================================================
- */
-
-export default function AdminComplaintsPage() {
-  return (
-    <AdminAuthGuard>
-      <AdminComplaintsContent />
-    </AdminAuthGuard>
   );
 }

@@ -319,21 +319,13 @@ export default function DocumentsPage() {
               </div>
 
               <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-purple-200">
-                  Document Service
-                </p>
+                
 
                 <h1 className="mt-1 text-2xl font-bold">
                   Document Request
                 </h1>
 
-                <p className="mt-2 text-sm leading-6 text-purple-100">
-                  Request official barangay documents
-                  online without creating an account.
-                  Please provide accurate information for
-                  verification by authorized barangay
-                  personnel.
-                </p>
+                
               </div>
             </div>
           </div>
