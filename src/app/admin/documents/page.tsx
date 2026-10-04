@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -40,6 +41,7 @@ type DocumentStatus =
 interface DocumentRequest {
   id: string;
   fullName: string;
+  email: string;
   purokStreet: string;
   documentType: string;
   purpose: string;
@@ -115,6 +117,7 @@ export default function AdminDocumentsPage() {
             return {
               id: document.id,
               fullName: value.fullName || "",
+              email: value.email || "",
               purokStreet: value.purokStreet || "",
               documentType: value.documentType || "",
               purpose: value.purpose || "",
@@ -154,6 +157,7 @@ export default function AdminDocumentsPage() {
       const matchesSearch =
         !search ||
         request.fullName.toLowerCase().includes(search) ||
+        request.email.toLowerCase().includes(search) ||
         request.purokStreet.toLowerCase().includes(search) ||
         request.documentType.toLowerCase().includes(search) ||
         request.purpose.toLowerCase().includes(search);
@@ -219,6 +223,9 @@ export default function AdminDocumentsPage() {
       return;
     }
 
+    const oldStatus = selectedRequest.status;
+    const newStatus = editStatus;
+
     try {
       setIsSaving(true);
       setErrorMessage("");
@@ -231,18 +238,97 @@ export default function AdminDocumentsPage() {
       );
 
       const updateData: Record<string, unknown> = {
-        status: editStatus,
+        status: newStatus,
         adminNotes: editNotes.trim(),
         updatedAt: serverTimestamp(),
       };
 
-      if (editStatus === "Completed") {
-        updateData.completedAt = serverTimestamp();
+      if (newStatus === "Completed") {
+        updateData.completedAt =
+          serverTimestamp();
       } else {
         updateData.completedAt = null;
       }
 
+      // ----------------------------------------
+      // 1. UPDATE DOCUMENT REQUEST
+      // ----------------------------------------
+
       await updateDoc(requestRef, updateData);
+
+      // ----------------------------------------
+      // 2. SEND EMAIL NOTIFICATION
+      //    ONLY WHEN STATUS CHANGES
+      // ----------------------------------------
+
+      if (oldStatus !== newStatus) {
+        if (!selectedRequest.email?.trim()) {
+          console.warn(
+            "No email address found for this document request."
+          );
+        } else {
+          try {
+            const emailResponse = await fetch(
+              "/api/admin/notify/email-notify",
+              {
+                method: "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+                },
+
+                body: JSON.stringify({
+                  email:
+                    selectedRequest.email.trim(),
+
+                  fullName:
+                    selectedRequest.fullName.trim(),
+
+                  title:
+                    "Document Request Status Updated",
+
+                  requestType:
+                    selectedRequest.documentType,
+
+                  requestId:
+                    selectedRequest.id,
+
+                  oldStatus,
+
+                  newStatus,
+                }),
+              }
+            );
+
+            const emailResult =
+              await emailResponse.json();
+
+            if (!emailResponse.ok) {
+              console.error(
+                "Email notification API error:",
+                emailResult
+              );
+            } else {
+              console.log(
+                "Email notification result:",
+                emailResult
+              );
+            }
+          } catch (emailError) {
+            // Email failure should not
+            // undo the successful status update.
+            console.error(
+              "Document email notification error:",
+              emailError
+            );
+          }
+        }
+      }
+
+      // ----------------------------------------
+      // 3. UPDATE THE MODAL UI
+      // ----------------------------------------
 
       setSaveMessage(
         "Document request status updated successfully."
@@ -252,7 +338,7 @@ export default function AdminDocumentsPage() {
         previous
           ? {
               ...previous,
-              status: editStatus,
+              status: newStatus,
               adminNotes: editNotes.trim(),
             }
           : null
@@ -683,6 +769,12 @@ export default function AdminDocumentsPage() {
                                   <p className="mt-1 text-xs text-slate-500">
                                     {request.purokStreet}
                                   </p>
+
+                                  {request.email && (
+                                    <p className="mt-1 text-xs text-slate-400">
+                                      {request.email}
+                                    </p>
+                                  )}
                                 </td>
 
                                 <td className="px-6 py-5">
@@ -756,6 +848,12 @@ export default function AdminDocumentsPage() {
                               {request.purokStreet}
                             </p>
 
+                            {request.email && (
+                              <p className="mt-1 text-xs text-slate-400">
+                                {request.email}
+                              </p>
+                            )}
+
                             <button
                               onClick={() =>
                                 openRequest(request)
@@ -816,6 +914,12 @@ export default function AdminDocumentsPage() {
                     <p className="mt-1 text-sm text-slate-600">
                       {selectedRequest.purokStreet}
                     </p>
+
+                    {selectedRequest.email && (
+                      <p className="mt-1 text-sm text-slate-500">
+                        {selectedRequest.email}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -1005,3 +1109,4 @@ export default function AdminDocumentsPage() {
     </AdminAuthGuard>
   );
 }
+

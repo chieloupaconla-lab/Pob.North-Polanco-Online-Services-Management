@@ -1,36 +1,48 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import {
+  FormEvent,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
 import {
   Bell,
+  BellRing,
   FileText,
-  Megaphone,
+  AlertTriangle,
   Package,
+  RotateCcw,
   Search,
+  Clock,
   CheckCircle2,
-  Clock3,
+  Circle,
   ArrowLeft,
-  AlertCircle,
-  RefreshCw,
-  CalendarDays,
-  UserRound,
+  Info,
+  Loader2,
 } from "lucide-react";
 
 import {
   collection,
+  doc,
   getDocs,
   query,
   where,
   Timestamp,
+  setDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
+import {
+  requestNotificationPermission,
+} from "@/lib/messaging";
 
 type RequestType =
   | "Document Request"
   | "Complaint"
-  | "Asset Borrowing";
+  | "Equipment Borrowing"
+  | "Equipment Returning";
 
 type RequestItem = {
   id: string;
@@ -38,18 +50,19 @@ type RequestItem = {
   title: string;
   status: string;
   createdAt: Date | null;
+  updatedAt: Date | null;
   details: string;
   extraDetails?: string;
 };
 
-const documentStatuses = [
+const DOCUMENT_STATUSES = [
   "Pending",
   "Under Review",
   "Approved",
   "Completed",
 ];
 
-const complaintStatuses = [
+const COMPLAINT_STATUSES = [
   "Pending",
   "Under Review",
   "For Action",
@@ -57,13 +70,46 @@ const complaintStatuses = [
   "Resolved",
 ];
 
-const assetStatuses = [
+const BORROWING_STATUSES = [
   "Pending",
   "Under Review",
   "Approved",
   "Released",
+];
+
+const RETURNING_STATUSES = [
+  "Borrowed",
+  "Return Requested",
   "Returned",
 ];
+
+function cleanResidentValue(value: string) {
+  return value
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function formatDate(date: Date | null) {
+  if (!date) return "Not available";
+
+  return date.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(date: Date | null) {
+  if (!date) return "Not available";
+
+  return date.toLocaleString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 function convertTimestamp(value: unknown): Date | null {
   if (value instanceof Timestamp) {
@@ -77,88 +123,223 @@ function convertTimestamp(value: unknown): Date | null {
   return null;
 }
 
-function getStatuses(type: RequestType) {
-  if (type === "Document Request") {
-    return documentStatuses;
+function getStatusColor(status: string) {
+  const normalized = status.toLowerCase();
+
+  if (
+    normalized.includes("completed") ||
+    normalized.includes("resolved") ||
+    normalized.includes("returned")
+  ) {
+    return "bg-green-100 text-green-700 border-green-200";
   }
 
-  if (type === "Complaint") {
-    return complaintStatuses;
+  if (
+    normalized.includes("approved") ||
+    normalized.includes("released")
+  ) {
+    return "bg-blue-100 text-blue-700 border-blue-200";
   }
 
-  return assetStatuses;
+  if (
+    normalized.includes("under review") ||
+    normalized.includes("in progress") ||
+    normalized.includes("for action")
+  ) {
+    return "bg-yellow-100 text-yellow-700 border-yellow-200";
+  }
+
+  if (
+    normalized.includes("rejected") ||
+    normalized.includes("cancelled") ||
+    normalized.includes("lost") ||
+    normalized.includes("damaged")
+  ) {
+    return "bg-red-100 text-red-700 border-red-200";
+  }
+
+  return "bg-gray-100 text-gray-700 border-gray-200";
+}
+
+function getTypeIcon(type: RequestType) {
+  switch (type) {
+    case "Document Request":
+      return <FileText className="h-5 w-5" />;
+
+    case "Complaint":
+      return <AlertTriangle className="h-5 w-5" />;
+
+    case "Equipment Borrowing":
+      return <Package className="h-5 w-5" />;
+
+    case "Equipment Returning":
+      return <RotateCcw className="h-5 w-5" />;
+
+    default:
+      return <Bell className="h-5 w-5" />;
+  }
+}
+
+function getTypeColor(type: RequestType) {
+  switch (type) {
+    case "Document Request":
+      return "bg-purple-100 text-purple-700";
+
+    case "Complaint":
+      return "bg-orange-100 text-orange-700";
+
+    case "Equipment Borrowing":
+      return "bg-blue-100 text-blue-700";
+
+    case "Equipment Returning":
+      return "bg-green-100 text-green-700";
+
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
+}
+
+function getStatuses(
+  type: RequestType,
+  status: string
+) {
+  let statuses: string[] = [];
+
+  switch (type) {
+    case "Document Request":
+      statuses = DOCUMENT_STATUSES;
+      break;
+
+    case "Complaint":
+      statuses = COMPLAINT_STATUSES;
+      break;
+
+    case "Equipment Borrowing":
+      statuses = BORROWING_STATUSES;
+      break;
+
+    case "Equipment Returning":
+      statuses = RETURNING_STATUSES;
+      break;
+  }
+
+  const normalizedStatus = status.trim();
+
+  if (
+    normalizedStatus === "Rejected" ||
+    normalizedStatus === "Cancelled" ||
+    normalizedStatus === "Overdue" ||
+    normalizedStatus === "Damaged" ||
+    normalizedStatus === "Lost"
+  ) {
+    return [...statuses, normalizedStatus];
+  }
+
+  if (!statuses.includes(normalizedStatus)) {
+    return [...statuses, normalizedStatus];
+  }
+
+  return statuses;
 }
 
 function getStatusIndex(
   statuses: string[],
-  currentStatus: string
+  status: string
 ) {
-  return statuses.indexOf(currentStatus);
+  return statuses.findIndex(
+    (item) =>
+      item.toLowerCase() === status.toLowerCase()
+  );
 }
 
 function StatusTimeline({
-  statuses,
-  currentStatus,
+  type,
+  status,
 }: {
-  statuses: string[];
-  currentStatus: string;
+  type: RequestType;
+  status: string;
 }) {
+  const statuses = getStatuses(type, status);
+
   const currentIndex = getStatusIndex(
     statuses,
-    currentStatus
+    status
   );
 
-  return (
-    <div className="mt-6 overflow-x-auto pb-2">
-      <div className="flex min-w-[620px] items-start">
-        {statuses.map((status, index) => {
-          const completed =
-            currentIndex >= 0 && index <= currentIndex;
+  const isSpecial = [
+    "Rejected",
+    "Cancelled",
+    "Overdue",
+    "Damaged",
+    "Lost",
+  ].includes(status);
 
-          const active = index === currentIndex;
+  return (
+    <div className="mt-6">
+      <p className="mb-4 text-sm font-semibold text-gray-700">
+        Request Progress
+      </p>
+
+      <div className="space-y-0">
+        {statuses.map((step, index) => {
+          const completed =
+            currentIndex >= 0 &&
+            index <= currentIndex;
+
+          const isCurrent =
+            step.toLowerCase() ===
+            status.toLowerCase();
 
           return (
-            <div
-              key={status}
-              className="relative flex flex-1 flex-col items-center"
-            >
-              {index > 0 && (
-                <div
-                  className={`absolute right-1/2 top-4 h-0.5 w-full ${
-                    index <= currentIndex
-                      ? "bg-violet-500"
-                      : "bg-slate-200"
-                  }`}
-                />
-              )}
-
-              <div
-                className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 ${
-                  active
-                    ? "border-violet-600 bg-violet-600 text-white"
-                    : completed
-                    ? "border-violet-500 bg-violet-100 text-violet-700"
-                    : "border-slate-200 bg-white text-slate-300"
-                }`}
-              >
+            <div key={step} className="flex">
+              <div className="mr-4 flex flex-col items-center">
                 {completed ? (
-                  <CheckCircle2 size={16} />
+                  <CheckCircle2
+                    className={`h-6 w-6 ${
+                      isSpecial
+                        ? "text-red-500"
+                        : "text-purple-600"
+                    }`}
+                  />
                 ) : (
-                  <Clock3 size={15} />
+                  <Circle className="h-6 w-6 text-gray-300" />
+                )}
+
+                {index < statuses.length - 1 && (
+                  <div
+                    className={`h-10 w-0.5 ${
+                      completed &&
+                      index < currentIndex
+                        ? isSpecial
+                          ? "bg-red-300"
+                          : "bg-purple-300"
+                        : "bg-gray-200"
+                    }`}
+                  />
                 )}
               </div>
 
-              <p
-                className={`mt-2 text-center text-xs font-medium ${
-                  active
-                    ? "text-violet-700"
-                    : completed
-                    ? "text-slate-700"
-                    : "text-slate-400"
-                }`}
-              >
-                {status}
-              </p>
+              <div className="pb-7">
+                <p
+                  className={`text-sm font-medium ${
+                    isCurrent
+                      ? isSpecial
+                        ? "text-red-600"
+                        : "text-purple-700"
+                      : completed
+                      ? "text-gray-700"
+                      : "text-gray-400"
+                  }`}
+                >
+                  {step}
+                </p>
+
+                {isCurrent && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    Current status
+                  </p>
+                )}
+              </div>
             </div>
           );
         })}
@@ -167,412 +348,721 @@ function StatusTimeline({
   );
 }
 
-function getIcon(type: RequestType) {
-  if (type === "Document Request") {
-    return <FileText size={22} />;
-  }
-
-  if (type === "Complaint") {
-    return <Megaphone size={22} />;
-  }
-
-  return <Package size={22} />;
-}
-
-function getIconContainer(type: RequestType) {
-  if (type === "Document Request") {
-    return "bg-violet-100 text-violet-700";
-  }
-
-  if (type === "Complaint") {
-    return "bg-amber-100 text-amber-700";
-  }
-
-  return "bg-emerald-100 text-emerald-700";
-}
-
-function getStatusStyle(status: string) {
-  if (
-    status === "Completed" ||
-    status === "Resolved" ||
-    status === "Returned"
-  ) {
-    return "bg-emerald-100 text-emerald-700";
-  }
-
-  if (
-    status === "Rejected" ||
-    status === "Damaged" ||
-    status === "Lost"
-  ) {
-    return "bg-red-100 text-red-700";
-  }
-
-  if (
-    status === "In Progress" ||
-    status === "For Action" ||
-    status === "Released"
-  ) {
-    return "bg-blue-100 text-blue-700";
-  }
-
-  if (status === "Overdue") {
-    return "bg-orange-100 text-orange-700";
-  }
-
-  return "bg-amber-100 text-amber-700";
-}
-
-function getStatusMessage(
-  type: RequestType,
-  status: string
-) {
-  if (type === "Asset Borrowing") {
-    switch (status) {
-      case "Pending":
-        return "Your equipment borrowing request has been submitted and is waiting for barangay review.";
-
-      case "Under Review":
-        return "Your equipment borrowing request is currently being reviewed by the barangay.";
-
-      case "Approved":
-        return "Your equipment borrowing request has been approved. Please wait for the release instructions.";
-
-      case "Released":
-        return "The requested barangay equipment has been released to you. Please return it on the agreed date.";
-
-      case "Returned":
-        return "The borrowed barangay equipment has been recorded as returned.";
-
-      case "Rejected":
-        return "Your equipment borrowing request was not approved. Please contact the barangay for details.";
-
-      case "Overdue":
-        return "The expected return date has passed. Please coordinate with the barangay regarding the borrowed equipment.";
-
-      case "Damaged":
-        return "The returned equipment was recorded with a damaged condition. Please coordinate with the barangay regarding the applicable action.";
-
-      case "Lost":
-        return "The borrowed equipment was recorded as lost. Please coordinate with the barangay regarding the applicable action.";
-
-      default:
-        return "Your equipment borrowing request has been updated.";
-    }
-  }
-
-  if (type === "Document Request") {
-    switch (status) {
-      case "Pending":
-        return "Your document request has been submitted and is waiting for review.";
-
-      case "Under Review":
-        return "Your document request is currently being reviewed by the barangay.";
-
-      case "Approved":
-        return "Your document request has been approved.";
-
-      case "Rejected":
-        return "Your document request was not approved. Please check with the barangay for details.";
-
-      case "Completed":
-        return "Your document request has been completed.";
-
-      default:
-        return "Your document request has been updated.";
-    }
-  }
-
-  switch (status) {
-    case "Pending":
-      return "Your community concern has been submitted and is waiting for review.";
-
-    case "Under Review":
-      return "Your community concern is currently being reviewed.";
-
-    case "For Action":
-      return "Your community concern has been forwarded for appropriate action.";
-
-    case "In Progress":
-      return "Action is currently being taken regarding your community concern.";
-
-    case "Resolved":
-      return "Your community concern has been marked as resolved.";
-
-    default:
-      return "Your community concern has been updated.";
-  }
-}
-
 export default function NotificationsPage() {
-  const [fullName, setFullName] = useState("");
-  const [purokStreet, setPurokStreet] = useState("");
+  const [fullName, setFullName] =
+    useState("");
 
-  const [requests, setRequests] = useState<RequestItem[]>([]);
-  const [searched, setSearched] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [purokStreet, setPurokStreet] =
+    useState("");
 
+  const [trackingCode, setTrackingCode] =
+    useState("");
+
+  const [notificationsEnabled, setNotificationsEnabled] =
+    useState(false);
+
+  const [notificationLoading, setNotificationLoading] =
+    useState(false);
+
+  const [notificationMessage, setNotificationMessage] =
+    useState("");
+
+  const [requests, setRequests] =
+    useState<RequestItem[]>([]);
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [searched, setSearched] =
+    useState(false);
+
+  const [error, setError] =
+    useState("");
+
+  const fullNameInputRef =
+    useRef<HTMLInputElement>(null);
+
+  const purokStreetInputRef =
+    useRef<HTMLInputElement>(null);
+
+  /*
+   * ============================================================
+   * ENABLE BROWSER PUSH NOTIFICATIONS
+   * ============================================================
+   */
+  async function handleEnableNotifications() {
+    const cleanName =
+      cleanResidentValue(fullName);
+
+    const cleanPurokStreet =
+      cleanResidentValue(purokStreet);
+
+    /*
+     * Resident information is required so the
+     * notification token can be connected to
+     * the correct resident requests.
+     */
+    if (!cleanName) {
+      setNotificationMessage(
+        "Please enter your Full Name first so notifications can be connected to your requests."
+      );
+
+      fullNameInputRef.current?.focus();
+
+      return;
+    }
+
+    if (!cleanPurokStreet) {
+      setNotificationMessage(
+        "Please enter your Purok / Street first so notifications can be connected to your requests."
+      );
+
+      purokStreetInputRef.current?.focus();
+
+      return;
+    }
+
+    setNotificationLoading(true);
+    setNotificationMessage("");
+
+    try {
+      /*
+       * Ask the browser for notification permission
+       * and generate the Firebase Cloud Messaging token.
+       */
+      const token =
+        await requestNotificationPermission();
+
+      if (!token) {
+        setNotificationMessage(
+          "Notifications were not enabled. Please allow notifications in your browser settings and try again."
+        );
+
+        return;
+      }
+
+      /*
+       * IMPORTANT:
+       *
+       * Do NOT query/read notificationTokens here.
+       *
+       * Residents are not allowed to read this collection
+       * for security reasons.
+       *
+       * Instead, the FCM token itself is used as the
+       * document ID. This allows us to directly create
+       * or update the resident's notification record.
+       */
+      const tokenId =
+        encodeURIComponent(token);
+
+      await setDoc(
+        doc(
+          db,
+          "notificationTokens",
+          tokenId
+        ),
+        {
+          token,
+
+          fullName:
+            cleanName,
+
+          purokStreet:
+            cleanPurokStreet,
+
+          updatedAt:
+            serverTimestamp(),
+        },
+        {
+          merge: true,
+        }
+      );
+
+      setNotificationsEnabled(true);
+
+      setNotificationMessage(
+        "Notifications are now enabled. You will receive an alert when there is progress on your document requests, community concerns, equipment borrowing, or equipment returning requests."
+      );
+    } catch (notificationError) {
+      console.error(
+        "Error enabling notifications:",
+        notificationError
+      );
+
+      setNotificationMessage(
+        "Unable to enable notifications. Please check your browser notification permission and try again."
+      );
+    } finally {
+      setNotificationLoading(false);
+    }
+  }
+
+  /*
+   * ============================================================
+   * SEARCH RESIDENT REQUESTS
+   * ============================================================
+   */
   async function handleSearch(
     event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
-    const cleanName = fullName.trim();
-    const cleanPurokStreet = purokStreet.trim();
+    setError("");
+    setRequests([]);
+    setSearched(false);
 
-    if (!cleanName || !cleanPurokStreet) {
-      setErrorMessage(
-        "Please enter your Full Name and Purok / Street."
+    const cleanName =
+      cleanResidentValue(fullName);
+
+    const cleanPurokStreet =
+      cleanResidentValue(purokStreet);
+
+    const cleanTrackingCode =
+      trackingCode.trim().toUpperCase();
+
+    /*
+     * Resident lookup requires both
+     * Full Name and Purok/Street.
+     */
+    if (
+      (cleanName && !cleanPurokStreet) ||
+      (!cleanName && cleanPurokStreet)
+    ) {
+      setError(
+        "Please enter both your Full Name and Purok/Street."
       );
+
+      return;
+    }
+
+    /*
+     * Allow either:
+     *
+     * Full Name + Purok/Street
+     *
+     * OR
+     *
+     * Anonymous Complaint Tracking Code
+     */
+    if (
+      !cleanName &&
+      !cleanPurokStreet &&
+      !cleanTrackingCode
+    ) {
+      setError(
+        "Please enter your Full Name and Purok/Street, or enter your anonymous complaint tracking code."
+      );
+
       return;
     }
 
     setLoading(true);
-    setSearched(false);
-    setRequests([]);
-    setErrorMessage("");
 
     try {
-      const foundRequests: RequestItem[] = [];
+      const allRequests: RequestItem[] =
+        [];
 
-      // ==================================================
-      // DOCUMENT REQUESTS
-      // ==================================================
+      /*
+       * ============================================================
+       * 1. BARANGAY DOCUMENT REQUESTS
+       * ============================================================
+       */
 
-      const documentsQuery = query(
-        collection(db, "documents"),
-        where("fullName", "==", cleanName),
-        where(
-          "purokStreet",
-          "==",
-          cleanPurokStreet
-        )
-      );
-
-      const documentsSnapshot =
-        await getDocs(documentsQuery);
-
-      documentsSnapshot.forEach(
-        (documentSnapshot) => {
-          const data = documentSnapshot.data();
-
-          foundRequests.push({
-            id: documentSnapshot.id,
-            type: "Document Request",
-            title:
-              data.documentType ||
-              "Barangay Document",
-            status: data.status || "Pending",
-            createdAt: convertTimestamp(
-              data.createdAt
+      if (
+        cleanName &&
+        cleanPurokStreet
+      ) {
+        const documentsQuery =
+          query(
+            collection(
+              db,
+              "documents"
             ),
-            details: data.purpose
-              ? `Purpose: ${data.purpose}`
-              : "Online document request",
-          });
-        }
-      );
+            where(
+              "fullName",
+              "==",
+              cleanName
+            ),
+            where(
+              "purokStreet",
+              "==",
+              cleanPurokStreet
+            )
+          );
 
-      // ==================================================
-      // NAMED COMMUNITY CONCERNS
-      // ==================================================
+        const documentsSnapshot =
+          await getDocs(
+            documentsQuery
+          );
 
-      const complaintsQuery = query(
-        collection(db, "complaints"),
-        where("fullName", "==", cleanName)
-      );
+        documentsSnapshot.forEach(
+          (documentSnapshot) => {
+            const data =
+              documentSnapshot.data();
 
-      const complaintsSnapshot =
-        await getDocs(complaintsQuery);
+            allRequests.push({
+              id:
+                documentSnapshot.id,
 
-      complaintsSnapshot.forEach(
-        (documentSnapshot) => {
-          const data = documentSnapshot.data();
+              type:
+                "Document Request",
 
-          if (!data.fullName) {
-            return;
+              title:
+                data.documentType ||
+                "Barangay Document Request",
+
+              status:
+                data.status ||
+                "Pending",
+
+              createdAt:
+                convertTimestamp(
+                  data.createdAt
+                ),
+
+              updatedAt:
+                convertTimestamp(
+                  data.updatedAt
+                ),
+
+              details:
+                data.purpose ||
+                "No purpose provided.",
+
+              extraDetails:
+                `Purok/Street: ${
+                  data.purokStreet ||
+                  cleanPurokStreet
+                }`,
+            });
           }
+        );
+      }
 
-          foundRequests.push({
-            id: documentSnapshot.id,
-            type: "Complaint",
-            title: "Community Concern",
-            status: data.status || "Pending",
-            createdAt: convertTimestamp(
-              data.createdAt
+      /*
+       * ============================================================
+       * 2. NAMED COMMUNITY CONCERNS / COMPLAINTS
+       * ============================================================
+       */
+
+      if (
+        cleanName &&
+        cleanPurokStreet
+      ) {
+        const complaintsQuery =
+          query(
+            collection(
+              db,
+              "complaints"
             ),
-            details: data.locationOfConcern
-              ? `Location: ${data.locationOfConcern}`
-              : "Community concern submitted online",
-          });
-        }
-      );
+            where(
+              "fullName",
+              "==",
+              cleanName
+            ),
+            where(
+              "purokStreet",
+              "==",
+              cleanPurokStreet
+            )
+          );
 
-      // ==================================================
-      // ASSET BORROWING
-      // ==================================================
+        const complaintsSnapshot =
+          await getDocs(
+            complaintsQuery
+          );
 
-      const assetsQuery = query(
-        collection(db, "assets"),
-        where(
-          "borrowerName",
-          "==",
-          cleanName
-        ),
-        where(
-          "purokStreet",
-          "==",
-          cleanPurokStreet
-        )
-      );
+        complaintsSnapshot.forEach(
+          (complaintSnapshot) => {
+            const data =
+              complaintSnapshot.data();
 
-      const assetsSnapshot =
-        await getDocs(assetsQuery);
+            /*
+             * Anonymous complaints should not
+             * appear in resident lookup.
+             */
+            if (
+              data.submissionType ===
+              "Anonymous"
+            ) {
+              return;
+            }
 
-      assetsSnapshot.forEach(
-        (documentSnapshot) => {
-          const data = documentSnapshot.data();
+            allRequests.push({
+              id:
+                complaintSnapshot.id,
 
-          const quantity =
-            Number(data.quantity) || 1;
+              type:
+                "Complaint",
 
-          const borrowDate =
-            data.borrowDate || "";
+              title:
+                data.category ||
+                "Community Concern",
 
-          const expectedReturnDate =
-            data.expectedReturnDate || "";
+              status:
+                data.status ||
+                "Pending",
 
-          foundRequests.push({
-            id: documentSnapshot.id,
-            type: "Asset Borrowing",
-            title:
+              createdAt:
+                convertTimestamp(
+                  data.createdAt
+                ),
+
+              updatedAt:
+                convertTimestamp(
+                  data.updatedAt
+                ),
+
+              details:
+                data.description ||
+                "No description provided.",
+
+              extraDetails:
+                `Location: ${
+                  data.locationOfConcern ||
+                  "Not provided"
+                }`,
+            });
+          }
+        );
+      }
+
+      /*
+       * ============================================================
+       * 3. ANONYMOUS COMMUNITY CONCERN
+       * ============================================================
+       */
+
+      if (cleanTrackingCode) {
+        const anonymousComplaintQuery =
+          query(
+            collection(
+              db,
+              "complaints"
+            ),
+            where(
+              "trackingCode",
+              "==",
+              cleanTrackingCode
+            )
+          );
+
+        const anonymousSnapshot =
+          await getDocs(
+            anonymousComplaintQuery
+          );
+
+        anonymousSnapshot.forEach(
+          (complaintSnapshot) => {
+            const data =
+              complaintSnapshot.data();
+
+            if (
+              data.submissionType !==
+              "Anonymous"
+            ) {
+              return;
+            }
+
+            allRequests.push({
+              id:
+                complaintSnapshot.id,
+
+              type:
+                "Complaint",
+
+              title:
+                data.category ||
+                "Anonymous Community Concern",
+
+              status:
+                data.status ||
+                "Pending",
+
+              createdAt:
+                convertTimestamp(
+                  data.createdAt
+                ),
+
+              updatedAt:
+                convertTimestamp(
+                  data.updatedAt
+                ),
+
+              details:
+                data.description ||
+                "No description provided.",
+
+              extraDetails:
+                `Location: ${
+                  data.locationOfConcern ||
+                  "Not provided"
+                }`,
+            });
+          }
+        );
+      }
+
+      /*
+       * ============================================================
+       * 4. EQUIPMENT BORROWING + RETURNING
+       * ============================================================
+       */
+
+      if (
+        cleanName &&
+        cleanPurokStreet
+      ) {
+        const assetsQuery =
+          query(
+            collection(
+              db,
+              "assets"
+            ),
+            where(
+              "borrowerName",
+              "==",
+              cleanName
+            ),
+            where(
+              "purokStreet",
+              "==",
+              cleanPurokStreet
+            )
+          );
+
+        const assetsSnapshot =
+          await getDocs(
+            assetsQuery
+          );
+
+        assetsSnapshot.forEach(
+          (assetSnapshot) => {
+            const data =
+              assetSnapshot.data();
+
+            const assetName =
               data.assetName ||
-              "Barangay Asset",
-            status: data.status || "Pending",
-            createdAt: convertTimestamp(
-              data.createdAt
-            ),
-            details: `Quantity: ${quantity}`,
-            extraDetails:
-              borrowDate || expectedReturnDate
-                ? `Borrow date: ${
-                    borrowDate || "Not specified"
-                  }${
-                    expectedReturnDate
-                      ? ` • Expected return: ${expectedReturnDate}`
-                      : ""
-                  }`
-                : undefined,
-          });
+              "Barangay Equipment";
+
+            const quantity =
+              data.quantity || 1;
+
+            /*
+             * Equipment Borrowing
+             */
+            allRequests.push({
+              id:
+                `${assetSnapshot.id}-borrow`,
+
+              type:
+                "Equipment Borrowing",
+
+              title:
+                assetName,
+
+              status:
+                data.status ||
+                "Pending",
+
+              createdAt:
+                convertTimestamp(
+                  data.createdAt
+                ),
+
+              updatedAt:
+                convertTimestamp(
+                  data.updatedAt
+                ),
+
+              details:
+                `Quantity: ${quantity}`,
+
+              extraDetails:
+                `Borrow Date: ${
+                  data.borrowDate ||
+                  "Not provided"
+                }`,
+            });
+
+            /*
+             * Equipment Returning
+             */
+            const hasReturnInformation =
+              data.actualReturnDate ||
+              data.returnCondition ||
+              data.damageDetails ||
+              data.lossDetails ||
+              data.penalty ||
+              [
+                "Returned",
+                "Damaged",
+                "Lost",
+                "Overdue",
+              ].includes(
+                data.status
+              );
+
+            if (
+              hasReturnInformation
+            ) {
+              let returnStatus =
+                "Return Requested";
+
+              if (
+                data.status ===
+                "Returned"
+              ) {
+                returnStatus =
+                  "Returned";
+              } else if (
+                data.status ===
+                "Damaged"
+              ) {
+                returnStatus =
+                  "Damaged";
+              } else if (
+                data.status ===
+                "Lost"
+              ) {
+                returnStatus =
+                  "Lost";
+              } else if (
+                data.status ===
+                "Overdue"
+              ) {
+                returnStatus =
+                  "Overdue";
+              }
+
+              allRequests.push({
+                id:
+                  `${assetSnapshot.id}-return`,
+
+                type:
+                  "Equipment Returning",
+
+                title:
+                  assetName,
+
+                status:
+                  returnStatus,
+
+                createdAt:
+                  convertTimestamp(
+                    data.createdAt
+                  ),
+
+                updatedAt:
+                  convertTimestamp(
+                    data.updatedAt
+                  ),
+
+                details:
+                  `Quantity: ${quantity}`,
+
+                extraDetails:
+                  data.actualReturnDate
+                    ? `Returned: ${data.actualReturnDate}`
+                    : "Return information is being processed.",
+              });
+            }
+          }
+        );
+      }
+
+      /*
+       * ============================================================
+       * SORT NEWEST FIRST
+       * ============================================================
+       */
+
+      allRequests.sort(
+        (a, b) => {
+          const dateA =
+            a.updatedAt?.getTime() ||
+            a.createdAt?.getTime() ||
+            0;
+
+          const dateB =
+            b.updatedAt?.getTime() ||
+            b.createdAt?.getTime() ||
+            0;
+
+          return dateB - dateA;
         }
       );
 
-      // ==================================================
-      // SORT NEWEST FIRST
-      // ==================================================
-
-      foundRequests.sort((a, b) => {
-        const dateA =
-          a.createdAt?.getTime() ?? 0;
-
-        const dateB =
-          b.createdAt?.getTime() ?? 0;
-
-        return dateB - dateA;
-      });
-
-      setRequests(foundRequests);
-      setSearched(true);
-    } catch (error) {
-      console.error(
-        "Error loading resident submissions:",
-        error
+      setRequests(
+        allRequests
       );
 
-      setErrorMessage(
-        "We could not load your submissions right now. Please try again."
+      setSearched(true);
+    } catch (searchError) {
+      console.error(
+        "Error loading resident requests:",
+        searchError
+      );
+
+      setError(
+        "Something went wrong while checking your requests. Please try again."
       );
     } finally {
       setLoading(false);
     }
   }
 
+  const residentInformationReady =
+    cleanResidentValue(fullName) !== "" &&
+    cleanResidentValue(purokStreet) !== "";
+
   return (
-    <main className="min-h-screen bg-gradient-to-b from-violet-50 via-white to-white">
-      {/* ==================================================
-          HEADER
-      ================================================== */}
-
-      <header className="border-b border-violet-100 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+    <main className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50">
+      {/* Header */}
+      <section className="border-b bg-white">
+        <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
           <Link
             href="/"
-            className="flex min-w-0 items-center gap-3"
+            className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-purple-600 hover:text-purple-800"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
-              <Bell size={21} />
-            </div>
+            <ArrowLeft className="h-4 w-4" />
 
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-slate-900">
-                Barangay Poblacion North
-              </p>
-
-              <p className="truncate text-xs text-slate-500">
-                Resident Notifications
-              </p>
-            </div>
-          </Link>
-
-          <Link
-            href="/"
-            className="hidden shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:inline-flex"
-          >
-            <ArrowLeft size={16} />
             Back to Home
           </Link>
-        </div>
-      </header>
 
-      {/* ==================================================
-          MAIN CONTENT
-      ================================================== */}
+          <div className="flex items-start gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
+              <Bell className="h-7 w-7" />
+            </div>
 
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
-        {/* Page Title */}
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
+                My Notifications & Requests
+              </h1>
 
-        <div className="mx-auto max-w-3xl text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
-            <Bell size={28} />
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-600 sm:text-base">
+                View and track all your barangay
+                service requests in one place.
+                You do not need to check each
+                service page separately.
+              </p>
+            </div>
           </div>
-
-          <h1 className="mt-5 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            My Notifications
-          </h1>
-
-          <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-            View the progress of your barangay
-            document requests, community concerns,
-            and asset borrowing submissions in one
-            place.
-          </p>
         </div>
+      </section>
 
-        {/* ==================================================
-            SEARCH FORM
-        ================================================== */}
-
-        <section className="mx-auto mt-8 max-w-3xl rounded-3xl border border-violet-100 bg-white p-5 shadow-sm sm:p-8">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+        {/* Search Card */}
+        <section className="rounded-3xl border border-purple-100 bg-white p-5 shadow-sm sm:p-7">
           <div className="mb-6">
-            <h2 className="text-lg font-bold text-slate-900">
-              Check My Submissions
+            <h2 className="text-lg font-bold text-gray-900">
+              Find Your Requests
             </h2>
 
-            <p className="mt-1 text-sm leading-6 text-slate-500">
+            <p className="mt-1 text-sm text-gray-500">
               Enter the same information you used
-              when submitting your barangay service
-              request.
+              when submitting your request.
             </p>
           </div>
 
@@ -580,384 +1070,438 @@ export default function NotificationsPage() {
             onSubmit={handleSearch}
             className="space-y-5"
           >
-            {/* Full Name */}
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-gray-700">
+                  Full Name
+                </label>
 
-            <div>
-              <label
-                htmlFor="fullName"
-                className="mb-2 block text-sm font-semibold text-slate-700"
-              >
-                Full Name
-              </label>
-
-              <input
-                id="fullName"
-                type="text"
-                value={fullName}
-                onChange={(event) =>
-                  setFullName(event.target.value)
-                }
-                placeholder="Enter your full name"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-              />
-            </div>
-
-            {/* Purok / Street */}
-
-            <div>
-              <label
-                htmlFor="purokStreet"
-                className="mb-2 block text-sm font-semibold text-slate-700"
-              >
-                Purok / Street
-              </label>
-
-              <input
-                id="purokStreet"
-                type="text"
-                value={purokStreet}
-                onChange={(event) =>
-                  setPurokStreet(event.target.value)
-                }
-                placeholder="Example: Purok 1, Poblacion North"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-              />
-            </div>
-
-            {/* Error */}
-
-            {errorMessage && (
-              <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700">
-                <AlertCircle
-                  size={18}
-                  className="mt-0.5 shrink-0"
+                <input
+                  ref={fullNameInputRef}
+                  type="text"
+                  value={fullName}
+                  onChange={(event) =>
+                    setFullName(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Enter your full name"
+                  autoComplete="name"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
                 />
+              </div>
 
-                <p>{errorMessage}</p>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-gray-700">
+                  Purok / Street
+                </label>
+
+                <input
+                  ref={purokStreetInputRef}
+                  type="text"
+                  value={purokStreet}
+                  onChange={(event) =>
+                    setPurokStreet(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Example: Purok 2, Poblacion North"
+                  autoComplete="street-address"
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+                />
+              </div>
+            </div>
+
+            <div className="relative flex items-center py-2">
+              <div className="h-px flex-1 bg-gray-200" />
+
+              <span className="px-4 text-xs font-medium uppercase tracking-wider text-gray-400">
+                Anonymous Complaint
+              </span>
+
+              <div className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            <div>
+              <label className="mb-2 block text-sm font-semibold text-gray-700">
+                Anonymous Complaint Tracking Code
+              </label>
+
+              <input
+                type="text"
+                value={trackingCode}
+                onChange={(event) =>
+                  setTrackingCode(
+                    event.target.value.toUpperCase()
+                  )
+                }
+                placeholder="Example: CN-ABC12345"
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm uppercase outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+              />
+
+              <p className="mt-2 text-xs text-gray-500">
+                Use this only if you submitted a
+                complaint anonymously.
+              </p>
+            </div>
+
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {error}
               </div>
             )}
-
-            {/* Search Button */}
 
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? (
-                <>
-                  <RefreshCw
-                    size={18}
-                    className="animate-spin"
-                  />
-                  Checking...
-                </>
-              ) : (
-                <>
-                  <Search size={18} />
-                  View My Submissions
-                </>
-              )}
+              <Search className="h-4 w-4" />
+
+              {loading
+                ? "Checking Your Requests..."
+                : "View My Requests"}
             </button>
           </form>
 
-          {/* Privacy Notice */}
+          <div className="mt-5 flex gap-3 rounded-xl bg-purple-50 p-4">
+            <Info className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
 
-          <div className="mt-5 rounded-xl bg-violet-50 p-4">
-            <p className="text-xs leading-5 text-violet-800">
-              <strong>Privacy Notice:</strong>{" "}
-              This page displays submissions matching
-              the information you provide. Anonymous
-              community concerns are not displayed
-              because they do not contain identifying
-              information for resident lookup.
+            <p className="text-xs leading-5 text-purple-800">
+              Your requests from the three main
+              services are automatically combined
+              here. You do not need to check each
+              service page separately.
             </p>
           </div>
         </section>
 
-        {/* ==================================================
-            RESULTS
-        ================================================== */}
+        {/* Push Notifications */}
+        <section className="mt-6 rounded-3xl border border-purple-100 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-purple-100 text-purple-600">
+                {notificationsEnabled ? (
+                  <BellRing className="h-6 w-6" />
+                ) : (
+                  <Bell className="h-6 w-6" />
+                )}
+              </div>
 
-        {searched && (
-          <section className="mt-10">
-            <div className="mb-5">
-              <h2 className="text-2xl font-bold text-slate-900">
-                Your Submissions
-              </h2>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">
+                  Get Automatic Updates
+                </h2>
 
-              <p className="mt-1 text-sm text-slate-500">
-                {requests.length === 0
-                  ? "No matching submissions were found."
-                  : `${requests.length} submission${
-                      requests.length === 1
-                        ? ""
-                        : "s"
-                    } found.`}
-              </p>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-600">
+                  Enable push notifications to
+                  receive an alert on your phone
+                  when there is progress on your
+                  document, community concern, or
+                  equipment request.
+                </p>
+
+                {!notificationsEnabled && (
+                  <p
+                    className={`mt-2 text-xs font-medium ${
+                      residentInformationReady
+                        ? "text-green-600"
+                        : "text-purple-600"
+                    }`}
+                  >
+                    {residentInformationReady
+                      ? "✓ Full Name and Purok / Street are ready for notification registration."
+                      : "Enter your Full Name and Purok / Street above first."}
+                  </p>
+                )}
+              </div>
             </div>
 
-            {/* No Results */}
+            <button
+              type="button"
+              onClick={
+                handleEnableNotifications
+              }
+              disabled={
+                notificationLoading ||
+                notificationsEnabled
+              }
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {notificationLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Enabling...
+                </>
+              ) : notificationsEnabled ? (
+                <>
+                  <BellRing className="h-4 w-4" />
+                  Notifications Enabled
+                </>
+              ) : (
+                <>
+                  <Bell className="h-4 w-4" />
+                  Enable Notifications
+                </>
+              )}
+            </button>
+          </div>
+
+          {notificationMessage && (
+            <div
+              className={`mt-4 rounded-xl border p-4 ${
+                notificationsEnabled
+                  ? "border-green-200 bg-green-50"
+                  : "border-purple-100 bg-purple-50"
+              }`}
+            >
+              <p
+                className={`text-sm leading-6 ${
+                  notificationsEnabled
+                    ? "text-green-800"
+                    : "text-purple-800"
+                }`}
+              >
+                {notificationMessage}
+              </p>
+            </div>
+          )}
+
+          {!notificationsEnabled && (
+            <div className="mt-4 rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="flex gap-3">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-gray-500" />
+
+                <div>
+                  <p className="text-sm font-semibold text-gray-700">
+                    How it works
+                  </p>
+
+                  <ol className="mt-2 space-y-1 text-xs leading-5 text-gray-500">
+                    <li>
+                      1. Enter your Full Name
+                      and Purok / Street above.
+                    </li>
+
+                    <li>
+                      2. Click Enable
+                      Notifications.
+                    </li>
+
+                    <li>
+                      3. Allow notifications
+                      when your browser asks.
+                    </li>
+
+                    <li>
+                      4. You will receive an
+                      alert when your request
+                      status changes.
+                    </li>
+                  </ol>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Results */}
+        {searched && (
+          <section className="mt-8">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">
+                  My Requests
+                </h2>
+
+                <p className="mt-1 text-sm text-gray-500">
+                  {requests.length === 0
+                    ? "No requests found."
+                    : `${requests.length} request${
+                        requests.length === 1
+                          ? ""
+                          : "s"
+                      } found`}
+                </p>
+              </div>
+            </div>
 
             {requests.length === 0 ? (
-              <div className="rounded-3xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-                  <Search size={25} />
+              <div className="rounded-3xl border border-gray-200 bg-white px-6 py-12 text-center shadow-sm">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+                  <Bell className="h-8 w-8 text-gray-400" />
                 </div>
 
-                <h3 className="mt-4 text-lg font-bold text-slate-900">
-                  No submissions found
+                <h3 className="mt-5 text-lg font-bold text-gray-900">
+                  No Requests Found
                 </h3>
 
-                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                  Make sure your Full Name and Purok /
-                  Street exactly match the information
-                  you provided when submitting your
-                  request.
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
+                  We could not find any document
+                  requests, complaints, equipment
+                  borrowing, or returning records
+                  using the information you entered.
+                </p>
+
+                <p className="mt-4 text-xs text-gray-400">
+                  Make sure your Full Name and
+                  Purok/Street match the information
+                  submitted with your request.
                 </p>
               </div>
             ) : (
-              <div className="space-y-5">
-                {requests.map((request) => {
-                  const statuses = getStatuses(
-                    request.type
-                  );
-
-                  return (
+              <div className="space-y-6">
+                {requests.map(
+                  (request) => (
                     <article
-                      key={`${request.type}-${request.id}`}
-                      className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm"
+                      key={request.id}
+                      className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm"
                     >
-                      <div className="p-5 sm:p-6">
-                        {/* Request Header */}
-
-                        <div className="flex flex-col gap-4">
-                          <div className="flex min-w-0 items-start gap-4">
+                      {/* Card Header */}
+                      <div className="border-b border-gray-100 p-5 sm:p-6">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="flex items-start gap-4">
                             <div
-                              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${getIconContainer(
+                              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${getTypeColor(
                                 request.type
                               )}`}
                             >
-                              {getIcon(request.type)}
+                              {getTypeIcon(
+                                request.type
+                              )}
                             </div>
 
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="break-words text-lg font-bold text-slate-900">
-                                  {request.title}
-                                </h3>
-
-                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                                  {request.type}
-                                </span>
-                              </div>
-
-                              <p className="mt-1 text-sm text-slate-500">
-                                {request.details}
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                                {request.type}
                               </p>
 
-                              {request.extraDetails && (
-                                <div className="mt-3 flex flex-col gap-2 text-xs text-slate-500 sm:flex-row sm:flex-wrap sm:gap-4">
-                                  <span className="inline-flex items-center gap-1.5">
-                                    <CalendarDays
-                                      size={14}
-                                    />
-                                    {request.extraDetails}
-                                  </span>
-                                </div>
-                              )}
-
-                              {request.createdAt && (
-                                <p className="mt-2 text-xs text-slate-400">
-                                  Submitted{" "}
-                                  {request.createdAt.toLocaleDateString(
-                                    "en-PH",
-                                    {
-                                      year: "numeric",
-                                      month: "long",
-                                      day: "numeric",
-                                    }
-                                  )}
-                                </p>
-                              )}
+                              <h3 className="mt-1 text-lg font-bold text-gray-900">
+                                {request.title}
+                              </h3>
                             </div>
                           </div>
 
-                          {/* Current Status */}
+                          <span
+                            className={`inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold ${getStatusColor(
+                              request.status
+                            )}`}
+                          >
+                            {request.status}
+                          </span>
+                        </div>
+                      </div>
 
-                          <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 sm:w-auto sm:self-end">
-                            <span className="text-xs font-medium text-slate-500 sm:hidden">
-                              Current Status
-                            </span>
+                      {/* Details */}
+                      <div className="p-5 sm:p-6">
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <div className="rounded-xl bg-gray-50 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                              Details
+                            </p>
 
-                            <span
-                              className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-bold ${getStatusStyle(
-                                request.status
-                              )}`}
-                            >
-                              {request.status}
-                            </span>
+                            <p className="mt-1 text-sm text-gray-700">
+                              {request.details}
+                            </p>
+                          </div>
+
+                          <div className="rounded-xl bg-gray-50 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                              Additional Information
+                            </p>
+
+                            <p className="mt-1 text-sm text-gray-700">
+                              {request.extraDetails ||
+                                "No additional information."}
+                            </p>
                           </div>
                         </div>
 
-                        {/* Status Message */}
+                        <div className="mt-4 flex flex-col gap-2 rounded-xl bg-purple-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex items-center gap-2 text-sm text-purple-800">
+                            <Clock className="h-4 w-4" />
 
-                        <div className="mt-5 flex items-start gap-3 rounded-2xl border border-violet-100 bg-violet-50 p-4">
-                          <div className="mt-0.5 shrink-0 text-violet-700">
-                            {request.type ===
-                            "Asset Borrowing" ? (
-                              <Package size={18} />
-                            ) : (
-                              <Bell size={18} />
+                            <span>
+                              Submitted:{" "}
+                              {formatDate(
+                                request.createdAt
+                              )}
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-purple-600">
+                            Last updated:{" "}
+                            {formatDateTime(
+                              request.updatedAt
                             )}
-                          </div>
-
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-violet-900">
-                              {request.status}
-                            </p>
-
-                            <p className="mt-1 text-xs leading-5 text-violet-800">
-                              {getStatusMessage(
-                                request.type,
-                                request.status
-                              )}
-                            </p>
-                          </div>
+                          </p>
                         </div>
 
-                        {/* Asset Borrower Information */}
-
-                        {request.type ===
-                          "Asset Borrowing" && (
-                          <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-                            <div className="flex items-start gap-3">
-                              <UserRound
-                                size={18}
-                                className="mt-0.5 shrink-0 text-emerald-700"
-                              />
-
-                              <div>
-                                <p className="text-sm font-semibold text-emerald-900">
-                                  Equipment Borrowing
-                                </p>
-
-                                <p className="mt-1 text-xs leading-5 text-emerald-800">
-                                  Please keep the equipment
-                                  in good condition and
-                                  return it on the agreed
-                                  return date.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Progress */}
-
+                        {/* Timeline */}
                         <StatusTimeline
-                          statuses={statuses}
-                          currentStatus={
-                            request.status
-                          }
+                          type={request.type}
+                          status={request.status}
                         />
                       </div>
                     </article>
-                  );
-                })}
+                  )
+                )}
               </div>
             )}
           </section>
         )}
 
-        {/* ==================================================
-            SERVICE LINKS
-        ================================================== */}
+        {/* Service Links */}
+        <section className="mt-10">
+          <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+            <h3 className="font-bold text-gray-900">
+              Need to Submit Another Request?
+            </h3>
 
-        <section className="mt-12">
-          <div className="mb-5 text-center">
-            <h2 className="text-xl font-bold text-slate-900">
-              Need Another Service?
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Submit a new barangay service request.
+            <p className="mt-1 text-sm text-gray-500">
+              Use the appropriate service below.
+              Your submitted request will
+              automatically appear here after you
+              search for your requests.
             </p>
-          </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            {/* Documents */}
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <Link
+                href="/documents"
+                className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 transition hover:border-purple-300 hover:bg-purple-50"
+              >
+                <FileText className="h-5 w-5 text-purple-600" />
 
-            <Link
-              href="/documents"
-              className="group rounded-2xl border border-violet-100 bg-white p-5 text-center shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
-            >
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
-                <FileText size={21} />
-              </div>
+                <span className="text-sm font-semibold text-gray-700">
+                  Documents
+                </span>
+              </Link>
 
-              <h3 className="mt-3 text-sm font-bold text-slate-900">
-                Request a Document
-              </h3>
+              <Link
+                href="/complaints"
+                className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 transition hover:border-orange-300 hover:bg-orange-50"
+              >
+                <AlertTriangle className="h-5 w-5 text-orange-600" />
 
-              <p className="mt-1 text-xs text-slate-500">
-                Submit an online document request.
-              </p>
-            </Link>
+                <span className="text-sm font-semibold text-gray-700">
+                  Complaints
+                </span>
+              </Link>
 
-            {/* Complaints */}
+              <Link
+                href="/assets"
+                className="flex items-center gap-3 rounded-xl border border-gray-200 p-4 transition hover:border-blue-300 hover:bg-blue-50"
+              >
+                <Package className="h-5 w-5 text-blue-600" />
 
-            <Link
-              href="/complaints"
-              className="group rounded-2xl border border-amber-100 bg-white p-5 text-center shadow-sm transition hover:-translate-y-0.5 hover:border-amber-200 hover:shadow-md"
-            >
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
-                <Megaphone size={21} />
-              </div>
-
-              <h3 className="mt-3 text-sm font-bold text-slate-900">
-                Submit a Concern
-              </h3>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Report a community concern.
-              </p>
-            </Link>
-
-            {/* Assets */}
-
-            <Link
-              href="/assets"
-              className="group rounded-2xl border border-emerald-100 bg-white p-5 text-center shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md"
-            >
-              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
-                <Package size={21} />
-              </div>
-
-              <h3 className="mt-3 text-sm font-bold text-slate-900">
-                Borrow an Asset
-              </h3>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Request barangay-owned equipment.
-              </p>
-            </Link>
+                <span className="text-sm font-semibold text-gray-700">
+                  Equipment
+                </span>
+              </Link>
+            </div>
           </div>
         </section>
       </div>
-
-      {/* ==================================================
-          FOOTER
-      ================================================== */}
-
-      <footer className="mt-16 border-t border-violet-100 bg-white">
-        <div className="mx-auto max-w-6xl px-4 py-6 text-center sm:px-6 lg:px-8">
-          <p className="text-xs text-slate-500">
-            Barangay Poblacion North • Municipality of
-            Polanco • Zamboanga del Norte
-          </p>
-        </div>
-      </footer>
     </main>
   );
 }

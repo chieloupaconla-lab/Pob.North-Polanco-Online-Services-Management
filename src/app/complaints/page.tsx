@@ -1,144 +1,288 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import React, { FormEvent, useState } from "react";
+import Link from "next/link";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bell,
+  CheckCircle2,
+  MapPin,
+  Send,
+  ShieldCheck,
+  User,
+  Home,
+  Image as ImageIcon,
+} from "lucide-react";
 import {
   addDoc,
   collection,
-  doc,
   serverTimestamp,
   updateDoc,
+  doc,
 } from "firebase/firestore";
+import { db, storage } from "@/lib/firebase";
 import {
   getDownloadURL,
   ref,
   uploadBytes,
 } from "firebase/storage";
-import { db, storage } from "@/lib/firebase";
-import {
-  AlertCircle,
-  ArrowLeft,
-  CheckCircle2,
-  FileImage,
-  ImagePlus,
-  Loader2,
-  MapPin,
-  MessageSquareWarning,
-  ShieldCheck,
-  Trash2,
-  Upload,
-  UserRound,
-} from "lucide-react";
-import Link from "next/link";
 
-type SubmissionType = "Anonymous" | "Named";
+type SubmissionType = "Anonymous" | "Provide My Name";
 
-interface ComplaintForm {
+type FormDataType = {
   submissionType: SubmissionType;
   fullName: string;
+  purokStreet: string;
+  category: string;
   description: string;
   locationOfConcern: string;
   incidentDate: string;
+};
+
+const categories = [
+  "Community Concern",
+  "Damaged Public Facility",
+  "Road or Drainage Problem",
+  "Streetlight Problem",
+  "Public Safety Concern",
+  "Other",
+];
+
+function generateComplaintTrackingCode() {
+  const characters =
+    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+  let result = "CN-";
+
+  for (let i = 0; i < 8; i++) {
+    result += characters.charAt(
+      Math.floor(Math.random() * characters.length)
+    );
+  }
+
+  return result;
+}
+
+/*
+ * ============================================================
+ * FAST IMAGE COMPRESSION
+ * ============================================================
+ */
+
+async function compressImage(file: File): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const image = new Image();
+
+      image.onload = () => {
+        const MAX_WIDTH = 1000;
+        const MAX_HEIGHT = 1000;
+        const QUALITY = 0.6;
+
+        let width = image.width;
+        let height = image.height;
+
+        if (
+          width > MAX_WIDTH ||
+          height > MAX_HEIGHT
+        ) {
+          const widthRatio =
+            MAX_WIDTH / width;
+
+          const heightRatio =
+            MAX_HEIGHT / height;
+
+          const ratio = Math.min(
+            widthRatio,
+            heightRatio
+          );
+
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas =
+          document.createElement("canvas");
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const context =
+          canvas.getContext("2d");
+
+        if (!context) {
+          reject(
+            new Error(
+              "Could not process the selected image."
+            )
+          );
+          return;
+        }
+
+        context.drawImage(
+          image,
+          0,
+          0,
+          width,
+          height
+        );
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(
+                new Error(
+                  "Could not compress the selected image."
+                )
+              );
+              return;
+            }
+
+            const compressedFile =
+              new File(
+                [blob],
+                `complaint-${Date.now()}.jpg`,
+                {
+                  type: "image/jpeg",
+                  lastModified: Date.now(),
+                }
+              );
+
+            resolve(compressedFile);
+          },
+          "image/jpeg",
+          QUALITY
+        );
+      };
+
+      image.onerror = () => {
+        reject(
+          new Error(
+            "The selected image could not be processed."
+          )
+        );
+      };
+
+      image.src =
+        event.target?.result as string;
+    };
+
+    reader.onerror = () => {
+      reject(
+        new Error(
+          "The selected image could not be read."
+        )
+      );
+    };
+
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ComplaintsPage() {
-  const [formData, setFormData] = useState<ComplaintForm>({
-    submissionType: "Anonymous",
-    fullName: "",
-    description: "",
-    locationOfConcern: "",
-    incidentDate: "",
-  });
+  const [formData, setFormData] =
+    useState<FormDataType>({
+      submissionType: "Provide My Name",
+      fullName: "",
+      purokStreet: "",
+      category: "Community Concern",
+      description: "",
+      locationOfConcern: "",
+      incidentDate: "",
+    });
 
-  const [evidenceFile, setEvidenceFile] = useState<File | null>(
-    null
-  );
+  const [evidenceFile, setEvidenceFile] =
+    useState<File | null>(null);
 
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [submitting, setSubmitting] =
+    useState(false);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadingImage, setUploadingImage] =
+    useState(false);
 
-  const [errorMessage, setErrorMessage] = useState("");
+  const [errorMessage, setErrorMessage] =
+    useState("");
 
-  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submitted, setSubmitted] =
+    useState(false);
+
+  const [submittedTrackingCode, setSubmittedTrackingCode] =
+    useState("");
+
+  const [imageSize, setImageSize] =
+    useState("");
 
   const handleChange = (
-    field: keyof ComplaintForm,
+    field: keyof FormDataType,
     value: string
   ) => {
     setFormData((previous) => ({
       ...previous,
       [field]: value,
     }));
-
-    setErrorMessage("");
   };
 
-  const handleSubmissionTypeChange = (
-    type: SubmissionType
-  ) => {
-    setFormData((previous) => ({
-      ...previous,
-      submissionType: type,
-      fullName:
-        type === "Anonymous" ? "" : previous.fullName,
-    }));
+  /*
+   * ============================================================
+   * IMAGE SELECTION
+   * ============================================================
+   */
 
-    setErrorMessage("");
-  };
-
-  const handleFileChange = (
+  const handleEvidenceChange = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const file = event.target.files?.[0];
+    const file =
+      event.target.files?.[0] || null;
+
+    setErrorMessage("");
+    setImageSize("");
 
     if (!file) {
+      setEvidenceFile(null);
       return;
     }
 
-    const allowedTypes = [
-      "image/jpeg",
-      "image/jpg",
-      "image/png",
-      "image/webp",
-    ];
-
-    if (!allowedTypes.includes(file.type)) {
+    if (!file.type.startsWith("image/")) {
       setErrorMessage(
-        "Please upload only JPG, JPEG, PNG, or WEBP image files."
+        "Please select a valid image file."
       );
 
       event.target.value = "";
+      setEvidenceFile(null);
       return;
     }
 
-    // Maximum 5 MB
-    if (file.size > 5 * 1024 * 1024) {
+    const MAX_ORIGINAL_SIZE =
+      15 * 1024 * 1024;
+
+    if (file.size > MAX_ORIGINAL_SIZE) {
       setErrorMessage(
-        "The image must not be larger than 5 MB."
+        "The selected image is too large. Please choose an image smaller than 15 MB."
       );
 
       event.target.value = "";
+      setEvidenceFile(null);
       return;
-    }
-
-    // Remove previous preview URL
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
     }
 
     setEvidenceFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
-    setErrorMessage("");
+
+    const sizeInMB =
+      file.size / (1024 * 1024);
+
+    setImageSize(
+      `${sizeInMB.toFixed(2)} MB selected`
+    );
   };
 
-  const removeFile = () => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
-    setEvidenceFile(null);
-    setPreviewUrl("");
-  };
+  /*
+   * ============================================================
+   * SUBMIT
+   * ============================================================
+   */
 
   const handleSubmit = async (
     event: FormEvent<HTMLFormElement>
@@ -147,115 +291,255 @@ export default function ComplaintsPage() {
 
     setErrorMessage("");
 
+    const cleanName =
+      formData.fullName.trim();
+
+    const cleanPurokStreet =
+      formData.purokStreet.trim();
+
+    const cleanDescription =
+      formData.description.trim();
+
+    const cleanLocation =
+      formData.locationOfConcern.trim();
+
     /*
-     * Basic validation
+     * VALIDATION
      */
-    if (!formData.description.trim()) {
+
+    if (
+      formData.submissionType ===
+      "Provide My Name"
+    ) {
+      if (!cleanName) {
+        setErrorMessage(
+          "Please enter your full name."
+        );
+        return;
+      }
+
+      if (!cleanPurokStreet) {
+        setErrorMessage(
+          "Please enter your purok or street."
+        );
+        return;
+      }
+    }
+
+    if (!cleanDescription) {
       setErrorMessage(
-        "Please enter your complaint or concern."
+        "Please describe the concern."
       );
       return;
     }
 
-    if (
-      formData.submissionType === "Named" &&
-      !formData.fullName.trim()
-    ) {
-      setErrorMessage("Please enter your full name.");
+    if (!cleanLocation) {
+      setErrorMessage(
+        "Please enter the location of the concern."
+      );
       return;
     }
 
+    /*
+     * START SUBMISSION
+     */
+
     try {
-      setIsSubmitting(true);
+      setSubmitting(true);
+
+      const trackingCode =
+        formData.submissionType ===
+        "Anonymous"
+          ? generateComplaintTrackingCode()
+          : "";
 
       /*
-       * IMPORTANT:
-       * Save the complaint to Firestore FIRST.
-       *
-       * This means the complaint is recorded immediately
-       * instead of waiting for the photo upload.
+       * SAVE COMPLAINT FIRST
        */
+
       const complaintRef = await addDoc(
         collection(db, "complaints"),
         {
-          submissionType: formData.submissionType,
+          submissionType:
+            formData.submissionType,
 
           fullName:
-            formData.submissionType === "Named"
-              ? formData.fullName.trim()
-              : "",
+            formData.submissionType ===
+            "Anonymous"
+              ? ""
+              : cleanName,
 
-          category: "Community Concern",
+          purokStreet:
+            formData.submissionType ===
+            "Anonymous"
+              ? ""
+              : cleanPurokStreet,
 
-          description: formData.description.trim(),
+          category:
+            formData.category,
+
+          description:
+            cleanDescription,
 
           locationOfConcern:
-            formData.locationOfConcern.trim(),
+            cleanLocation,
 
-          incidentDate: formData.incidentDate || "",
+          incidentDate:
+            formData.incidentDate,
 
-          /*
-           * Empty initially.
-           * It will be updated after the photo uploads.
-           */
           evidenceUrl: "",
 
           status: "Pending",
+
+          trackingCode,
 
           adminNotes: "",
 
           assignedTo: "",
 
-          createdAt: serverTimestamp(),
+          evidenceUploadStatus:
+            evidenceFile
+              ? "Uploading"
+              : "No Photo",
 
-          updatedAt: serverTimestamp(),
+          createdAt:
+            serverTimestamp(),
+
+          updatedAt:
+            serverTimestamp(),
 
           resolvedAt: null,
         }
       );
 
       /*
-       * Show success immediately after Firestore
-       * successfully receives the complaint.
-       *
-       * The resident does not have to wait for the
-       * evidence upload.
+       * COMPLAINT IS NOW SAVED
        */
-      setIsSubmitted(true);
 
-      /*
-       * Save the current file before clearing the form.
-       */
-      const fileToUpload = evidenceFile;
+      setSubmittedTrackingCode(
+        trackingCode
+      );
+
+      setSubmitted(true);
 
       setFormData({
-        submissionType: "Anonymous",
+        submissionType:
+          "Provide My Name",
         fullName: "",
+        purokStreet: "",
+        category:
+          "Community Concern",
         description: "",
         locationOfConcern: "",
         incidentDate: "",
       });
 
       setEvidenceFile(null);
-
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-
-      setPreviewUrl("");
+      setImageSize("");
 
       /*
-       * Upload evidence AFTER the complaint has already
-       * been successfully submitted.
-       *
-       * This happens in the background from the resident's
-       * point of view.
+       * PHOTO UPLOAD
        */
-      if (fileToUpload) {
-        void uploadComplaintEvidence(
-          complaintRef.id,
-          fileToUpload
-        );
+
+      if (evidenceFile) {
+        setUploadingImage(true);
+
+        try {
+          const compressedFile =
+            await compressImage(
+              evidenceFile
+            );
+
+          const MAX_COMPRESSED_SIZE =
+            1 * 1024 * 1024;
+
+          if (
+            compressedFile.size >
+            MAX_COMPRESSED_SIZE
+          ) {
+            await updateDoc(
+              doc(
+                db,
+                "complaints",
+                complaintRef.id
+              ),
+              {
+                evidenceUploadStatus:
+                  "Failed - Image Too Large",
+
+                updatedAt:
+                  serverTimestamp(),
+              }
+            );
+
+            setUploadingImage(false);
+            return;
+          }
+
+          const storageRef = ref(
+            storage,
+            `complaint-evidence/${complaintRef.id}.jpg`
+          );
+
+          await uploadBytes(
+            storageRef,
+            compressedFile,
+            {
+              contentType: "image/jpeg",
+            }
+          );
+
+          const evidenceUrl =
+            await getDownloadURL(
+              storageRef
+            );
+
+          await updateDoc(
+            doc(
+              db,
+              "complaints",
+              complaintRef.id
+            ),
+            {
+              evidenceUrl,
+
+              evidenceUploadStatus:
+                "Uploaded",
+
+              updatedAt:
+                serverTimestamp(),
+            }
+          );
+        } catch (imageError) {
+          console.error(
+            "Background image upload error:",
+            imageError
+          );
+
+          try {
+            await updateDoc(
+              doc(
+                db,
+                "complaints",
+                complaintRef.id
+              ),
+              {
+                evidenceUploadStatus:
+                  "Failed",
+
+                updatedAt:
+                  serverTimestamp(),
+              }
+            );
+          } catch (updateError) {
+            console.error(
+              "Could not update image status:",
+              updateError
+            );
+          }
+        } finally {
+          setUploadingImage(false);
+        }
       }
     } catch (error) {
       console.error(
@@ -264,376 +548,433 @@ export default function ComplaintsPage() {
       );
 
       setErrorMessage(
-        "We could not submit your complaint. Please check your internet connection and try again."
+        "Something went wrong while submitting your concern. Please try again."
       );
-    } finally {
-      setIsSubmitting(false);
+
+      setSubmitting(false);
+      return;
     }
+
+    setSubmitting(false);
   };
 
   /*
-   * Upload supporting evidence after the complaint
-   * has already been saved.
+   * ============================================================
+   * SUCCESS SCREEN
+   * ============================================================
    */
-  const uploadComplaintEvidence = async (
-    complaintId: string,
-    file: File
-  ) => {
-    try {
-      const safeFileName = file.name.replace(
-        /[^a-zA-Z0-9.-]/g,
-        "_"
-      );
 
-      const fileName = `${Date.now()}-${safeFileName}`;
-
-      const storageReference = ref(
-        storage,
-        `complaint-evidence/${complaintId}-${fileName}`
-      );
-
-      await uploadBytes(
-        storageReference,
-        file
-      );
-
-      const evidenceUrl = await getDownloadURL(
-        storageReference
-      );
-
-      /*
-       * Update the already-created complaint with
-       * the evidence URL.
-       */
-      await updateDoc(
-        doc(db, "complaints", complaintId),
-        {
-          evidenceUrl,
-          updatedAt: serverTimestamp(),
-        }
-      );
-
-      console.log(
-        "Complaint evidence uploaded successfully."
-      );
-    } catch (error) {
-      /*
-       * The complaint is already saved.
-       *
-       * If the image upload fails, the complaint remains
-       * available to the admin. The evidenceUrl simply
-       * stays empty.
-       */
-      console.error(
-        "Evidence upload failed:",
-        error
-      );
-    }
-  };
-
-  /*
-   * Success screen
-   */
-  if (isSubmitted) {
+  if (submitted) {
     return (
-      <main className="min-h-screen bg-gradient-to-b from-violet-50 via-white to-white">
-        <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6 py-12">
-          <div className="w-full rounded-3xl border border-violet-100 bg-white p-8 text-center shadow-xl shadow-violet-100/50 sm:p-12">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-green-100">
-              <CheckCircle2
-                size={42}
-                className="text-green-600"
-              />
+      <main className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 px-4 py-8">
+        <div className="mx-auto max-w-2xl">
+
+          {/* Back Button */}
+          <Link
+            href="/"
+            className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-purple-700 transition hover:text-purple-900"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Home
+          </Link>
+
+          <div className="rounded-3xl bg-white p-8 text-center shadow-xl ring-1 ring-purple-100 sm:p-10">
+
+            <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-green-100">
+              <CheckCircle2 className="h-10 w-10 text-green-600" />
             </div>
 
-            <h1 className="mt-6 text-3xl font-bold text-slate-900">
-              Complaint Submitted Successfully
-            </h1>
-
-            <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-slate-600">
-              Thank you for reporting your concern. Your
-              submission has been received by Barangay
-              Poblacion North and will be reviewed by
-              authorized barangay personnel.
+            <p className="text-sm font-bold uppercase tracking-wider text-purple-600">
+              Submission Successful
             </p>
 
-            <div className="mx-auto mt-6 max-w-xl rounded-2xl border border-violet-100 bg-violet-50 p-5 text-left">
-              <div className="flex gap-3">
-                <ShieldCheck
-                  size={22}
-                  className="mt-0.5 shrink-0 text-violet-600"
-                />
+            <h1 className="mt-2 text-2xl font-bold text-gray-900">
+              Concern Submitted Successfully
+            </h1>
+
+            <p className="mt-3 text-gray-600">
+              Thank you for submitting your
+              community concern. The barangay
+              personnel will review your
+              submission.
+            </p>
+
+            {/* Anonymous Tracking Code */}
+            {submittedTrackingCode && (
+              <div className="mt-6 rounded-2xl border border-purple-200 bg-purple-50 p-5">
+
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-purple-100">
+                  <ShieldCheck className="h-6 w-6 text-purple-700" />
+                </div>
+
+                <p className="mt-4 text-sm font-bold text-purple-700">
+                  Your Private Tracking Code
+                </p>
+
+                <p className="mt-2 text-2xl font-bold tracking-wider text-purple-900">
+                  {submittedTrackingCode}
+                </p>
+
+                <p className="mt-3 text-xs leading-5 text-purple-700">
+                  Save this code somewhere safe.
+                  Because your complaint was
+                  submitted anonymously, this code
+                  is required to find your complaint
+                  on the Notifications page.
+                </p>
+
+              </div>
+            )}
+
+            {/* Photo Upload Information */}
+            {evidenceFile && (
+              <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-left">
+
+                <div className="flex items-start gap-3">
+
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100">
+                    <ImageIcon className="h-5 w-5 text-blue-600" />
+                  </div>
+
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">
+                      Photo evidence is uploading
+                    </p>
+
+                    <p className="mt-1 text-xs leading-5 text-gray-600">
+                      Your complaint has already
+                      been submitted. The photo is
+                      being uploaded separately and
+                      will be attached to your
+                      complaint when finished.
+                    </p>
+
+                    {uploadingImage && (
+                      <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-blue-700">
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+                        Uploading photo...
+                      </div>
+                    )}
+
+                  </div>
+
+                </div>
+
+              </div>
+            )}
+
+            {/* Central Notification Tracking */}
+            <div className="mt-7 rounded-2xl border border-purple-200 bg-purple-50 p-5 text-left">
+
+              <div className="flex items-start gap-3">
+
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-purple-100">
+                  <Bell className="h-5 w-5 text-purple-700" />
+                </div>
 
                 <div>
-                  <p className="font-semibold text-slate-900">
-                    What happens next?
+                  <p className="text-sm font-bold text-gray-900">
+                    Track your request through Notifications
                   </p>
 
-                  <p className="mt-1 text-sm leading-6 text-slate-600">
-                    The barangay personnel will review your
-                    complaint and take appropriate action
-                    when necessary.
+                  <p className="mt-1 text-sm leading-6 text-gray-600">
+                    You do not need to check this
+                    complaint page again. Open the
+                    notification bell to view the
+                    current progress of your concern
+                    together with your other barangay
+                    requests.
                   </p>
+
+                  {submittedTrackingCode ? (
+                    <p className="mt-3 text-xs font-medium text-purple-700">
+                      Anonymous complaint:
+                      use your private tracking code
+                      on the Notifications page.
+                    </p>
+                  ) : (
+                    <p className="mt-3 text-xs font-medium text-purple-700">
+                      Named complaint:
+                      use the same Full Name and
+                      Purok/Street you submitted.
+                    </p>
+                  )}
                 </div>
+
               </div>
+
             </div>
 
-            <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => setIsSubmitted(false)}
-                className="rounded-xl bg-violet-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
+            {/* Buttons */}
+            <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:justify-center">
+
+              <Link
+                href="/notifications"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3 font-semibold text-white transition hover:bg-purple-700"
               >
-                Submit Another Complaint
-              </button>
+                <Bell className="h-5 w-5" />
+                Open Notifications
+              </Link>
 
               <Link
                 href="/"
-                className="rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-5 py-3 font-semibold text-gray-700 transition hover:bg-gray-50"
               >
+                <Home className="h-5 w-5" />
                 Back to Home
               </Link>
+
             </div>
+
           </div>
         </div>
       </main>
     );
   }
 
-  return (
-    <main className="min-h-screen bg-gradient-to-b from-violet-50 via-white to-white">
-      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+  /*
+   * ============================================================
+   * MAIN PAGE
+   * ============================================================
+   */
 
-        {/* Back */}
+  return (
+    <main className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 px-4 py-8">
+      <div className="mx-auto max-w-3xl">
+
+        {/* Back Button */}
         <Link
           href="/"
-          className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-slate-600 transition hover:text-violet-600"
+          className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-purple-700 transition hover:text-purple-900"
         >
-          <ArrowLeft size={17} />
+          <ArrowLeft className="h-4 w-4" />
           Back to Home
         </Link>
 
-        {/* Header */}
-        <div className="mb-8">
-          <div className="mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100">
-            <MessageSquareWarning
-              size={28}
-              className="text-violet-600"
-            />
+        <div className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-purple-100">
+
+          {/* Header */}
+          <div className="bg-gradient-to-r from-purple-700 to-indigo-700 px-6 py-8 text-white sm:px-8">
+
+            <div className="flex items-start gap-4">
+
+              <div className="rounded-2xl bg-white/15 p-3">
+                <AlertTriangle className="h-7 w-7" />
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-purple-200">
+                  Community Service
+                </p>
+
+                <h1 className="mt-1 text-2xl font-bold">
+                  Community Concern
+                </h1>
+
+                <p className="mt-2 text-sm leading-6 text-purple-100">
+                  Report damaged public facilities,
+                  road or drainage problems,
+                  streetlight issues, and other
+                  community concerns in Barangay
+                  Poblacion North.
+                </p>
+              </div>
+
+            </div>
+
           </div>
 
-          <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            Community Concerns
-          </h1>
+          <form
+            onSubmit={handleSubmit}
+            className="space-y-7 p-6 sm:p-8"
+          >
 
-          <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-            Report a community concern or problem that needs
-            the attention of Barangay Poblacion North.
-          </p>
-        </div>
-
-        {/* Residency Notice */}
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">
-          <div className="flex gap-3">
-            <AlertCircle
-              size={22}
-              className="mt-0.5 shrink-0 text-amber-600"
-            />
-
+            {/* Submission Type */}
             <div>
-              <h2 className="font-semibold text-amber-900">
-                For Poblacion North Residents
+
+              <h2 className="text-lg font-bold text-gray-900">
+                Submission Type
               </h2>
 
-              <p className="mt-1 text-sm leading-6 text-amber-800">
-                This service is intended for residents of
-                Barangay Poblacion North. Submitted information
-                may be validated by authorized barangay
-                personnel before action is taken.
+              <p className="mt-1 text-sm text-gray-500">
+                Choose whether you want to provide
+                your identity.
               </p>
-            </div>
-          </div>
-        </div>
 
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xl shadow-violet-100/40 sm:p-8"
-        >
-          {/* Submission Type */}
-          <section>
-            <div className="mb-5">
-              <h2 className="text-lg font-bold text-slate-900">
-                How would you like to submit?
-              </h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
 
-              <p className="mt-1 text-sm text-slate-500">
-                You may submit anonymously or provide your
-                name.
-              </p>
-            </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleChange(
+                      "submissionType",
+                      "Provide My Name"
+                    )
+                  }
+                  className={`rounded-2xl border p-4 text-left transition ${
+                    formData.submissionType ===
+                    "Provide My Name"
+                      ? "border-purple-500 bg-purple-50 ring-2 ring-purple-200"
+                      : "border-gray-200 hover:border-purple-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
 
-            <div className="grid gap-4 sm:grid-cols-2">
+                    <User className="h-5 w-5 text-purple-600" />
 
-              {/* Anonymous */}
-              <button
-                type="button"
-                onClick={() =>
-                  handleSubmissionTypeChange("Anonymous")
-                }
-                className={`rounded-2xl border-2 p-5 text-left transition ${
-                  formData.submissionType === "Anonymous"
-                    ? "border-violet-500 bg-violet-50"
-                    : "border-slate-200 bg-white hover:border-violet-200"
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  <div
-                    className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-                      formData.submissionType ===
+                    <div>
+                      <p className="font-semibold text-gray-900">
+                        Provide My Name
+                      </p>
+
+                      <p className="mt-1 text-xs text-gray-500">
+                        Your name and location will
+                        be recorded.
+                      </p>
+                    </div>
+
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleChange(
+                      "submissionType",
                       "Anonymous"
-                        ? "bg-violet-600 text-white"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
-                  >
-                    <ShieldCheck size={22} />
+                    )
+                  }
+                  className={`rounded-2xl border p-4 text-left transition ${
+                    formData.submissionType ===
+                    "Anonymous"
+                      ? "border-purple-500 bg-purple-50 ring-2 ring-purple-200"
+                      : "border-gray-200 hover:border-purple-300"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+
+                    <ShieldCheck className="h-5 w-5 text-purple-600" />
+
+                    <div>
+                      <p className="font-semibold text-gray-900">
+                        Anonymous
+                      </p>
+
+                      <p className="mt-1 text-xs text-gray-500">
+                        Your name and address are
+                        not recorded.
+                      </p>
+                    </div>
+
                   </div>
+                </button>
 
-                  <div>
-                    <h3 className="font-semibold text-slate-900">
-                      Anonymous
-                    </h3>
+              </div>
 
-                    <p className="mt-1 text-sm leading-5 text-slate-500">
-                      Do not provide your name, phone number,
-                      or email.
-                    </p>
-                  </div>
-                </div>
-              </button>
-
-              {/* Named */}
-              <button
-                type="button"
-                onClick={() =>
-                  handleSubmissionTypeChange("Named")
-                }
-                className={`rounded-2xl border-2 p-5 text-left transition ${
-                  formData.submissionType === "Named"
-                    ? "border-violet-500 bg-violet-50"
-                    : "border-slate-200 bg-white hover:border-violet-200"
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  <div
-                    className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-                      formData.submissionType === "Named"
-                        ? "bg-violet-600 text-white"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
-                  >
-                    <UserRound size={22} />
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold text-slate-900">
-                      Provide My Name
-                    </h3>
-
-                    <p className="mt-1 text-sm leading-5 text-slate-500">
-                      Your name will only be visible to
-                      authorized barangay personnel.
-                    </p>
-                  </div>
-                </div>
-              </button>
             </div>
-          </section>
 
-          <div className="my-8 border-t border-slate-100" />
+            {/* Name + Purok */}
+            {formData.submissionType ===
+              "Provide My Name" && (
+              <div className="grid gap-5 sm:grid-cols-2">
 
-          {/* Named User */}
-          {formData.submissionType === "Named" && (
-            <section className="mb-8">
-              <label
-                htmlFor="fullName"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Full Name{" "}
-                <span className="text-red-500">*</span>
-              </label>
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                    Full Name{" "}
+                    <span className="text-red-500">
+                      *
+                    </span>
+                  </label>
 
-              <input
-                id="fullName"
-                type="text"
-                value={formData.fullName}
-                onChange={(event) =>
-                  handleChange(
-                    "fullName",
-                    event.target.value
-                  )
-                }
-                placeholder="Enter your full name"
-                required
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-              />
+                  <input
+                    type="text"
+                    value={formData.fullName}
+                    onChange={(event) =>
+                      handleChange(
+                        "fullName",
+                        event.target.value
+                      )
+                    }
+                    placeholder="Enter your full name"
+                    required
+                    disabled={submitting}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+                  />
+                </div>
 
-              <p className="mt-2 text-xs text-slate-500">
-                Your name is only accessible to authorized
-                barangay personnel.
-              </p>
-            </section>
-          )}
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                    Purok / Street{" "}
+                    <span className="text-red-500">
+                      *
+                    </span>
+                  </label>
 
-          {/* Complaint Details */}
-          <section>
-            <div className="mb-5">
-              <h2 className="text-lg font-bold text-slate-900">
-                Complaint Details
-              </h2>
+                  <input
+                    type="text"
+                    value={formData.purokStreet}
+                    onChange={(event) =>
+                      handleChange(
+                        "purokStreet",
+                        event.target.value
+                      )
+                    }
+                    placeholder="Example: Purok 2"
+                    required
+                    disabled={submitting}
+                    className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+                  />
 
-              <p className="mt-1 text-sm text-slate-500">
-                Provide the details of the community concern.
-              </p>
-            </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    This is used only to help locate
+                    your request through Notifications.
+                  </p>
+                </div>
+
+              </div>
+            )}
 
             {/* Category */}
-            <div className="mb-6">
-              <label
-                htmlFor="category"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
+            <div>
+
+              <label className="mb-2 block text-sm font-semibold text-gray-700">
                 Category
               </label>
 
-              <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <MessageSquareWarning
-                  size={19}
-                  className="text-violet-600"
-                />
+              <select
+                value={formData.category}
+                onChange={(event) =>
+                  handleChange(
+                    "category",
+                    event.target.value
+                  )
+                }
+                disabled={submitting}
+                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+              >
+                {categories.map((category) => (
+                  <option
+                    key={category}
+                    value={category}
+                  >
+                    {category}
+                  </option>
+                ))}
+              </select>
 
-                <input
-                  id="category"
-                  type="text"
-                  value="Community Concern"
-                  readOnly
-                  className="w-full bg-transparent text-sm font-medium text-slate-700 outline-none"
-                />
-              </div>
             </div>
 
             {/* Description */}
-            <div className="mb-6">
-              <label
-                htmlFor="description"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Complaint / Concern Description{" "}
-                <span className="text-red-500">*</span>
+            <div>
+
+              <label className="mb-2 block text-sm font-semibold text-gray-700">
+                Description of Concern{" "}
+                <span className="text-red-500">
+                  *
+                </span>
               </label>
 
               <textarea
-                id="description"
                 value={formData.description}
                 onChange={(event) =>
                   handleChange(
@@ -641,66 +982,52 @@ export default function ComplaintsPage() {
                     event.target.value
                   )
                 }
-                placeholder="Describe the problem or concern clearly..."
+                rows={5}
                 required
-                rows={6}
-                className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
+                disabled={submitting}
+                placeholder="Describe the concern or problem..."
+                className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
               />
 
-              <p className="mt-2 text-xs text-slate-500">
-                Please provide enough information for the
-                barangay personnel to understand the concern.
-              </p>
             </div>
 
             {/* Location */}
-            <div className="mb-6">
-              <label
-                htmlFor="locationOfConcern"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Location of Concern
-                <span className="ml-1 font-normal text-slate-400">
-                  (Optional)
-                </span>
-              </label>
+            <div>
 
-              <div className="relative">
-                <MapPin
-                  size={18}
-                  className="absolute left-4 top-3.5 text-slate-400"
-                />
+              <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <MapPin className="h-4 w-4 text-purple-600" />
 
-                <input
-                  id="locationOfConcern"
-                  type="text"
-                  value={formData.locationOfConcern}
-                  onChange={(event) =>
-                    handleChange(
-                      "locationOfConcern",
-                      event.target.value
-                    )
-                  }
-                  placeholder="Example: Purok 2, near the barangay hall"
-                  className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-                />
-              </div>
-            </div>
-
-            {/* Incident Date */}
-            <div className="mb-6">
-              <label
-                htmlFor="incidentDate"
-                className="mb-2 block text-sm font-semibold text-slate-800"
-              >
-                Date of Incident
-                <span className="ml-1 font-normal text-slate-400">
-                  (Optional)
+                Exact Location of Concern{" "}
+                <span className="text-red-500">
+                  *
                 </span>
               </label>
 
               <input
-                id="incidentDate"
+                type="text"
+                value={formData.locationOfConcern}
+                onChange={(event) =>
+                  handleChange(
+                    "locationOfConcern",
+                    event.target.value
+                  )
+                }
+                placeholder="Example: Near Barangay Hall, Purok 2"
+                required
+                disabled={submitting}
+                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
+              />
+
+            </div>
+
+            {/* Incident Date */}
+            <div>
+
+              <label className="mb-2 block text-sm font-semibold text-gray-700">
+                Incident Date
+              </label>
+
+              <input
                 type="date"
                 value={formData.incidentDate}
                 onChange={(event) =>
@@ -709,192 +1036,169 @@ export default function ComplaintsPage() {
                     event.target.value
                   )
                 }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100 sm:max-w-md"
+                disabled={submitting}
+                className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
               />
+
             </div>
 
             {/* Evidence */}
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-800">
-                Supporting Photo / Evidence
-                <span className="ml-1 font-normal text-slate-400">
-                  (Optional)
-                </span>
+
+              <label className="mb-2 block text-sm font-semibold text-gray-700">
+                Evidence / Photo
               </label>
 
-              {!evidenceFile ? (
-                <label
-                  htmlFor="evidence"
-                  className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center transition hover:border-violet-300 hover:bg-violet-50/50"
-                >
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-100">
-                    <ImagePlus
-                      size={27}
-                      className="text-violet-600"
+              <div className="rounded-2xl border border-dashed border-purple-200 bg-purple-50/50 p-4">
+
+                <div className="flex items-start gap-3">
+
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-100">
+                    <ImageIcon className="h-5 w-5 text-purple-600" />
+                  </div>
+
+                  <div className="flex-1">
+
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={submitting}
+                      onChange={
+                        handleEvidenceChange
+                      }
+                      className="block w-full text-sm"
                     />
-                  </div>
 
-                  <p className="mt-4 font-semibold text-slate-800">
-                    Upload a supporting image
-                  </p>
+                    <p className="mt-2 text-xs text-gray-500">
+                      Optional. Upload a photo showing
+                      the reported concern.
+                    </p>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    JPG, JPEG, PNG, or WEBP • Maximum 5 MB
-                  </p>
+                    <p className="mt-1 text-xs text-purple-600">
+                      Photos are automatically
+                      reduced to a smaller JPEG for
+                      faster upload.
+                    </p>
 
-                  <div className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-violet-600 shadow-sm">
-                    <Upload size={16} />
-                    Choose Image
-                  </div>
-
-                  <input
-                    id="evidence"
-                    type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/webp"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                </label>
-              ) : (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                    {previewUrl && (
-                      <img
-                        src={previewUrl}
-                        alt="Evidence preview"
-                        className="h-32 w-full rounded-xl object-cover sm:h-24 sm:w-32"
-                      />
+                    {imageSize && (
+                      <p className="mt-2 text-xs font-medium text-gray-600">
+                        {imageSize}
+                      </p>
                     )}
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <FileImage
-                          size={18}
-                          className="shrink-0 text-violet-600"
-                        />
-
-                        <p className="truncate text-sm font-semibold text-slate-800">
-                          {evidenceFile.name}
-                        </p>
-                      </div>
-
-                      <p className="mt-1 text-xs text-slate-500">
-                        {(
-                          evidenceFile.size /
-                          (1024 * 1024)
-                        ).toFixed(2)}{" "}
-                        MB
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={removeFile}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-                    >
-                      <Trash2 size={16} />
-                      Remove
-                    </button>
                   </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Privacy */}
+            <div className="rounded-2xl bg-gray-50 p-4 text-sm text-gray-600">
+
+              {formData.submissionType ===
+              "Anonymous" ? (
+                <div className="flex gap-3">
+
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
+
+                  <p>
+                    Your identity will not be
+                    recorded. After submission, you
+                    will receive a private tracking
+                    code. Keep the code safe because
+                    it will be used to find your
+                    anonymous concern through the
+                    Notifications page.
+                  </p>
+
+                </div>
+              ) : (
+                <div className="flex gap-3">
+
+                  <User className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
+
+                  <p>
+                    Your name and Purok/Street are
+                    used to help you find this
+                    submission later through the
+                    central Notifications page,
+                    together with your other barangay
+                    requests.
+                  </p>
+
                 </div>
               )}
+
             </div>
-          </section>
 
-          {/* Privacy */}
-          <div className="mt-8 rounded-2xl border border-violet-100 bg-violet-50 p-5">
-            <div className="flex gap-3">
-              <ShieldCheck
-                size={22}
-                className="mt-0.5 shrink-0 text-violet-600"
-              />
-
-              <div>
-                <h3 className="font-semibold text-slate-900">
-                  Privacy and Submission Notice
-                </h3>
-
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Anonymous submissions do not require your
-                  name, phone number, or email. If you provide
-                  your name, it will only be visible to
-                  authorized barangay personnel for purposes
-                  related to processing your concern.
-                </p>
+            {/* Error */}
+            {errorMessage && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                {errorMessage}
               </div>
-            </div>
-          </div>
+            )}
 
-          {/* Error */}
-          {errorMessage && (
-            <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4">
-              <div className="flex gap-3">
-                <AlertCircle
-                  size={20}
-                  className="mt-0.5 shrink-0 text-red-600"
-                />
-
-                <p className="text-sm leading-6 text-red-700">
-                  {errorMessage}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Submit */}
-          <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <Link
-              href="/"
-              className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              Cancel
-            </Link>
-
+            {/* Submit */}
             <button
               type="submit"
-              disabled={isSubmitting}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-7 py-3 text-sm font-semibold text-white shadow-lg shadow-violet-200 transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={submitting}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3.5 font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? (
+              {submitting ? (
                 <>
-                  <Loader2
-                    size={18}
-                    className="animate-spin"
-                  />
-                  Submitting...
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+
+                  Submitting Concern...
                 </>
               ) : (
                 <>
-                  <MessageSquareWarning size={18} />
-                  Submit Complaint
+                  <Send className="h-5 w-5" />
+                  Submit Community Concern
                 </>
               )}
             </button>
-          </div>
-        </form>
 
-        {/* Bottom Notice */}
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5">
-          <div className="flex gap-3">
-            <AlertCircle
-              size={20}
-              className="mt-0.5 shrink-0 text-slate-500"
-            />
+            <p className="text-center text-xs leading-5 text-gray-500">
+              By submitting this form, you confirm
+              that the information provided is
+              accurate. Submitted concerns may be
+              reviewed and validated by authorized
+              barangay personnel.
+            </p>
+
+          </form>
+        </div>
+
+        {/* Notification Reminder */}
+        <div className="mt-6 rounded-2xl border border-purple-100 bg-white p-5 shadow-sm">
+
+          <div className="flex items-start gap-3">
+
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-100">
+              <Bell className="h-5 w-5 text-purple-700" />
+            </div>
 
             <div>
-              <p className="text-sm font-semibold text-slate-800">
-                Important
+              <p className="text-sm font-bold text-gray-900">
+                Track all your requests in one place
               </p>
 
-              <p className="mt-1 text-sm leading-6 text-slate-500">
-                Please submit only legitimate community
-                concerns. Providing accurate information helps
-                barangay personnel properly evaluate and
-                respond to the issue.
+              <p className="mt-1 text-sm leading-6 text-gray-600">
+                After submitting a concern, you do not
+                need to return to this page to check its
+                progress. Open the notification bell to
+                view your complaint together with your
+                document and equipment requests.
               </p>
+
             </div>
+
           </div>
+
         </div>
+
       </div>
     </main>
   );

@@ -1,9 +1,11 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import {
   AlertCircle,
+  ArrowLeft,
   CalendarDays,
   CheckCircle2,
   ClipboardCheck,
@@ -11,6 +13,7 @@ import {
   ShieldCheck,
   UserRound,
   Users,
+  Bell,
 } from "lucide-react";
 
 import { db } from "@/lib/firebase";
@@ -92,36 +95,39 @@ export default function AssetsPage() {
 
     try {
       await addDoc(collection(db, "assets"), {
+        // Borrower information
         borrowerName: formData.borrowerName.trim(),
-        borrowerContactNumber:
-          formData.borrowerContactNumber.trim(),
+        borrowerContactNumber: formData.borrowerContactNumber.trim(),
         purokStreet: formData.purokStreet.trim(),
 
+        // Asset information
         assetName: formData.assetName,
         quantity: Number(formData.quantity),
-
         purpose: formData.purpose.trim(),
 
+        // Borrowing schedule
         borrowDate: formData.borrowDate,
         expectedReturnDate: formData.expectedReturnDate,
 
+        // Returning information
         actualReturnDate: null,
-
-        witnessName: formData.witnessName.trim(),
-        witnessRelationship:
-          formData.witnessRelationship.trim(),
-        witnessContactNumber:
-          formData.witnessContactNumber.trim(),
-
-        status: "Pending",
-
         returnCondition: "",
         damageDetails: "",
         lossDetails: "",
         penalty: "",
 
+        // Witness / checker
+        witnessName: formData.witnessName.trim(),
+        witnessRelationship: formData.witnessRelationship.trim(),
+        witnessContactNumber: formData.witnessContactNumber.trim(),
+
+        // Request status
+        status: "Pending",
+
+        // Admin information
         adminNotes: "",
 
+        // Timestamps
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -153,10 +159,25 @@ export default function AssetsPage() {
     }
   };
 
+  // --------------------------------------------------
+  // SUCCESS SCREEN
+  // --------------------------------------------------
+
   if (submitted) {
     return (
       <main className="min-h-screen bg-violet-50 px-4 py-10 sm:px-6">
         <div className="mx-auto max-w-2xl">
+          {/* Back to Home */}
+          <div className="mb-6">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-2 text-sm font-medium text-violet-700 transition hover:text-violet-900"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Home
+            </Link>
+          </div>
+
           <div className="rounded-3xl border border-violet-100 bg-white p-8 text-center shadow-sm sm:p-12">
             <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
               <CheckCircle2 size={42} />
@@ -193,9 +214,39 @@ export default function AssetsPage() {
               </div>
             </div>
 
+            {/* Central Notification Tracking */}
+            <div className="mt-6 rounded-2xl border border-indigo-100 bg-indigo-50 p-5 text-left">
+              <div className="flex gap-3">
+                <Bell
+                  size={20}
+                  className="mt-0.5 shrink-0 text-indigo-600"
+                />
+
+                <div>
+                  <p className="font-semibold text-slate-900">
+                    Track Your Request
+                  </p>
+
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    You can track the progress of your equipment
+                    borrowing request and future returning status
+                    through the Notifications page.
+                  </p>
+                </div>
+              </div>
+
+              <Link
+                href="/notifications"
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
+              >
+                <Bell size={18} />
+                Open Notifications
+              </Link>
+            </div>
+
             <button
               onClick={() => setSubmitted(false)}
-              className="mt-8 rounded-xl bg-violet-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
+              className="mt-4 rounded-xl border border-violet-200 bg-white px-6 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
             >
               Submit Another Request
             </button>
@@ -205,9 +256,24 @@ export default function AssetsPage() {
     );
   }
 
+  // --------------------------------------------------
+  // BORROWING FORM
+  // --------------------------------------------------
+
   return (
     <main className="min-h-screen bg-violet-50 px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
+        {/* Back to Home */}
+        <div className="mb-6">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 text-sm font-medium text-violet-700 transition hover:text-violet-900"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Home
+          </Link>
+        </div>
+
         {/* Header */}
         <section className="rounded-3xl bg-gradient-to-r from-violet-700 to-indigo-700 p-6 text-white shadow-sm sm:p-8">
           <div className="flex items-start gap-4">
@@ -256,10 +322,7 @@ export default function AssetsPage() {
           </div>
         </section>
 
-        <form
-          onSubmit={handleSubmit}
-          className="mt-6 space-y-6"
-        >
+        <form onSubmit={handleSubmit} className="mt-6 space-y-6">
           {/* Borrower Information */}
           <section className="rounded-3xl border border-violet-100 bg-white p-6 shadow-sm sm:p-8">
             <div className="mb-6 flex items-center gap-3">
@@ -552,17 +615,21 @@ export default function AssetsPage() {
                       • Use the borrowed asset only for the stated
                       purpose.
                     </li>
+
                     <li>
                       • Keep the asset safe and in good condition.
                     </li>
+
                     <li>
                       • Return the asset on the agreed return date.
                     </li>
+
                     <li>
                       • Damage, loss, or late return may result in
                       applicable penalties according to barangay
                       policy.
                     </li>
+
                     <li>
                       • The witness/checker may be contacted if an
                       issue occurs involving the borrower or the

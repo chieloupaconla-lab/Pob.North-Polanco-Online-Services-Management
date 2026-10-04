@@ -5,8 +5,6 @@ import {
   collection,
   doc,
   onSnapshot,
-  orderBy,
-  query,
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
@@ -159,8 +157,13 @@ function SummaryCard({
     <div className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-bold text-slate-900">{count}</p>
+          <p className="text-sm font-medium text-slate-500">
+            {label}
+          </p>
+
+          <p className="mt-2 text-3xl font-bold text-slate-900">
+            {count}
+          </p>
         </div>
 
         <div className="rounded-xl bg-violet-50 p-3 text-violet-600">
@@ -183,7 +186,10 @@ function InfoRow({
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
         {label}
       </p>
-      <p className="mt-1 text-sm text-slate-700">{value || "—"}</p>
+
+      <p className="mt-1 break-words text-sm text-slate-700">
+        {value || "—"}
+      </p>
     </div>
   );
 }
@@ -206,26 +212,32 @@ function AdminAssetsContent() {
 
   const [editStatus, setEditStatus] =
     useState<AssetStatus>("Pending");
+
   const [editNotes, setEditNotes] = useState("");
-  const [editReturnCondition, setEditReturnCondition] = useState("");
-  const [editDamageDetails, setEditDamageDetails] = useState("");
-  const [editLossDetails, setEditLossDetails] = useState("");
+  const [editReturnCondition, setEditReturnCondition] =
+    useState("");
+  const [editDamageDetails, setEditDamageDetails] =
+    useState("");
+  const [editLossDetails, setEditLossDetails] =
+    useState("");
   const [editPenalty, setEditPenalty] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const assetsQuery = query(
-      collection(db, "assets"),
-      orderBy("createdAt", "desc")
-    );
-
     const unsubscribe = onSnapshot(
-      assetsQuery,
+      collection(db, "assets"),
       (snapshot) => {
         const data: AssetRequest[] = snapshot.docs.map((item) => ({
           id: item.id,
           ...(item.data() as Omit<AssetRequest, "id">),
         }));
+
+        data.sort((a, b) => {
+          const aTime = a.createdAt?.seconds ?? 0;
+          const bTime = b.createdAt?.seconds ?? 0;
+
+          return bTime - aTime;
+        });
 
         setRequests(data);
         setLoading(false);
@@ -233,7 +245,12 @@ function AdminAssetsContent() {
       },
       (firebaseError) => {
         console.error(firebaseError);
-        setError(firebaseError.message);
+
+        setError(
+          firebaseError.message ||
+            "Unable to load asset requests."
+        );
+
         setLoading(false);
       }
     );
@@ -247,40 +264,84 @@ function AdminAssetsContent() {
     return requests.filter((request) => {
       const matchesSearch =
         !searchValue ||
-        request.borrowerName?.toLowerCase().includes(searchValue) ||
-        request.assetName?.toLowerCase().includes(searchValue) ||
-        request.purokStreet?.toLowerCase().includes(searchValue) ||
-        request.purpose?.toLowerCase().includes(searchValue);
+        request.borrowerName
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        request.borrowerContactNumber
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        request.assetName
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        request.purokStreet
+          ?.toLowerCase()
+          .includes(searchValue) ||
+        request.purpose
+          ?.toLowerCase()
+          .includes(searchValue);
 
       const matchesStatus =
-        statusFilter === "All" || request.status === statusFilter;
+        statusFilter === "All" ||
+        request.status === statusFilter;
 
       const matchesAsset =
-        assetFilter === "All" || request.assetName === assetFilter;
+        assetFilter === "All" ||
+        request.assetName === assetFilter;
 
-      return matchesSearch && matchesStatus && matchesAsset;
+      return (
+        matchesSearch &&
+        matchesStatus &&
+        matchesAsset
+      );
     });
   }, [requests, search, statusFilter, assetFilter]);
 
   const summary = {
-    pending: requests.filter((r) => r.status === "Pending").length,
-    review: requests.filter((r) => r.status === "Under Review").length,
-    approved: requests.filter((r) => r.status === "Approved").length,
-    released: requests.filter((r) => r.status === "Released").length,
-    returned: requests.filter((r) => r.status === "Returned").length,
-    overdue: requests.filter((r) => r.status === "Overdue").length,
+    pending: requests.filter(
+      (request) => request.status === "Pending"
+    ).length,
+
+    review: requests.filter(
+      (request) => request.status === "Under Review"
+    ).length,
+
+    approved: requests.filter(
+      (request) => request.status === "Approved"
+    ).length,
+
+    released: requests.filter(
+      (request) => request.status === "Released"
+    ).length,
+
+    returned: requests.filter(
+      (request) => request.status === "Returned"
+    ).length,
+
+    overdue: requests.filter(
+      (request) => request.status === "Overdue"
+    ).length,
+
     issues: requests.filter(
-      (r) => r.status === "Damaged" || r.status === "Lost"
+      (request) =>
+        request.status === "Damaged" ||
+        request.status === "Lost"
     ).length,
   };
 
   const openRequest = (request: AssetRequest) => {
     setSelectedRequest(request);
+
     setEditStatus(request.status);
     setEditNotes(request.adminNotes || "");
-    setEditReturnCondition(request.returnCondition || "");
-    setEditDamageDetails(request.damageDetails || "");
-    setEditLossDetails(request.lossDetails || "");
+    setEditReturnCondition(
+      request.returnCondition || ""
+    );
+    setEditDamageDetails(
+      request.damageDetails || ""
+    );
+    setEditLossDetails(
+      request.lossDetails || ""
+    );
     setEditPenalty(request.penalty || "");
   };
 
@@ -293,24 +354,37 @@ function AdminAssetsContent() {
   const saveChanges = async () => {
     if (!selectedRequest) return;
 
-    if (editStatus === "Rejected" && !editNotes.trim()) {
-      alert("Please provide an admin note explaining the rejection.");
+    if (
+      editStatus === "Rejected" &&
+      !editNotes.trim()
+    ) {
+      alert(
+        "Please provide an admin note explaining the rejection."
+      );
       return;
     }
 
     setSaving(true);
 
     try {
-      const requestRef = doc(db, "assets", selectedRequest.id);
+      const requestRef = doc(
+        db,
+        "assets",
+        selectedRequest.id
+      );
 
       await updateDoc(requestRef, {
         status: editStatus,
         adminNotes: editNotes.trim(),
-        returnCondition: editReturnCondition.trim(),
-        damageDetails: editDamageDetails.trim(),
-        lossDetails: editLossDetails.trim(),
+        returnCondition:
+          editReturnCondition.trim(),
+        damageDetails:
+          editDamageDetails.trim(),
+        lossDetails:
+          editLossDetails.trim(),
         penalty: editPenalty.trim(),
         updatedAt: serverTimestamp(),
+
         actualReturnDate:
           editStatus === "Returned" ||
           editStatus === "Damaged" ||
@@ -322,7 +396,10 @@ function AdminAssetsContent() {
       setSelectedRequest(null);
     } catch (error) {
       console.error(error);
-      alert("Unable to save the changes. Please try again.");
+
+      alert(
+        "Unable to save the changes. Please try again."
+      );
     } finally {
       setSaving(false);
     }
@@ -339,8 +416,9 @@ function AdminAssetsContent() {
       <div className="sticky top-0 z-30 flex items-center justify-between border-b border-violet-100 bg-white px-4 py-3 lg:hidden">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">
-            Admin Portal
+            Administration
           </p>
+
           <p className="font-bold text-slate-900">
             Asset Borrowing
           </p>
@@ -349,6 +427,7 @@ function AdminAssetsContent() {
         <button
           onClick={() => setMobileMenuOpen(true)}
           className="rounded-xl border border-violet-100 p-2 text-slate-600"
+          aria-label="Open menu"
         >
           <Menu size={22} />
         </button>
@@ -357,10 +436,13 @@ function AdminAssetsContent() {
       {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r border-violet-100 bg-white transition-transform duration-200 lg:translate-x-0 ${
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+          mobileMenuOpen
+            ? "translate-x-0"
+            : "-translate-x-full"
         }`}
       >
         <div className="flex h-full flex-col">
+          {/* Sidebar Brand */}
           <div className="border-b border-violet-100 px-6 py-6">
             <div className="flex items-center gap-3">
               <div className="rounded-xl bg-violet-600 p-3 text-white">
@@ -371,6 +453,7 @@ function AdminAssetsContent() {
                 <p className="font-bold text-slate-900">
                   e-Barangay
                 </p>
+
                 <p className="text-xs text-slate-500">
                   Admin Portal
                 </p>
@@ -378,26 +461,36 @@ function AdminAssetsContent() {
             </div>
           </div>
 
+          {/* Navigation */}
           <nav className="flex-1 space-y-1 px-4 py-5">
             <button
-              onClick={() => router.push("/admin")}
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-violet-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                router.push("/admin");
+              }}
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-violet-50"
             >
               <FileText size={18} />
               Dashboard
             </button>
 
             <button
-              onClick={() => router.push("/admin/documents")}
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-violet-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                router.push("/admin/documents");
+              }}
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-violet-50"
             >
               <FileText size={18} />
               Document Requests
             </button>
 
             <button
-              onClick={() => router.push("/admin/complaints")}
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-violet-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                router.push("/admin/complaints");
+              }}
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-violet-50"
             >
               <AlertCircle size={18} />
               Community Concerns
@@ -410,17 +503,23 @@ function AdminAssetsContent() {
               Asset Borrowing
             </button>
 
-            <button className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-400">
+            <button
+              className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-400"
+            >
               <Clock3 size={18} />
               Notifications
+
               <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px]">
                 Soon
               </span>
             </button>
 
-            <button className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-400">
+            <button
+              className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-400"
+            >
               <Settings size={18} />
               Settings
+
               <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px]">
                 Soon
               </span>
@@ -429,18 +528,22 @@ function AdminAssetsContent() {
             <div className="my-4 border-t border-violet-100" />
 
             <button
-              onClick={() => router.push("/")}
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-violet-50"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                router.push("/");
+              }}
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-violet-50"
             >
               <ArrowLeft size={18} />
               Public Portal
             </button>
           </nav>
 
+          {/* Sign Out */}
           <div className="border-t border-violet-100 p-4">
             <button
               onClick={handleSignOut}
-              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-600 hover:bg-red-50"
+              className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
             >
               <LogOut size={18} />
               Sign Out
@@ -449,6 +552,7 @@ function AdminAssetsContent() {
         </div>
       </aside>
 
+      {/* Mobile Overlay */}
       {mobileMenuOpen && (
         <button
           aria-label="Close menu"
@@ -459,46 +563,20 @@ function AdminAssetsContent() {
 
       {/* Main */}
       <main className="lg:pl-72">
+        {/* Desktop Header */}
         <header className="hidden border-b border-violet-100 bg-white px-8 py-5 lg:block">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-500">
-                Barangay Poblacion North
-              </p>
-              <h1 className="text-2xl font-bold text-slate-900">
-                Asset Borrowing & Returning
-              </h1>
-            </div>
+          <div>
+            <p className="text-sm font-medium text-slate-500">
+              Administration
+            </p>
 
-            <div className="flex items-center gap-3 rounded-xl bg-violet-50 px-4 py-2">
-              <UserRound size={18} className="text-violet-600" />
-              <span className="text-sm font-medium text-slate-700">
-                Authorized Admin
-              </span>
-            </div>
+            <h1 className="mt-1 text-2xl font-bold text-slate-900">
+              Asset Borrowing
+            </h1>
           </div>
         </header>
 
         <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
-          {/* Intro */}
-          <section className="rounded-3xl bg-gradient-to-r from-violet-700 to-indigo-700 p-6 text-white shadow-sm sm:p-8">
-            <div className="max-w-3xl">
-              <p className="text-sm font-semibold text-violet-100">
-                Administrative Management
-              </p>
-
-              <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
-                Manage Barangay Asset Borrowing
-              </h2>
-
-              <p className="mt-3 text-sm leading-6 text-violet-100 sm:text-base">
-                Review borrowing requests, approve releases, monitor
-                return schedules, and record the condition of
-                barangay-owned assets.
-              </p>
-            </div>
-          </section>
-
           {/* Summary */}
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <SummaryCard
@@ -561,7 +639,9 @@ function AdminAssetsContent() {
 
                 <input
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) =>
+                    setSearch(e.target.value)
+                  }
                   placeholder="Search borrower, asset, location, or purpose..."
                   className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                 />
@@ -569,8 +649,10 @@ function AdminAssetsContent() {
 
               <select
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-500"
+                onChange={(e) =>
+                  setStatusFilter(e.target.value)
+                }
+                className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
               >
                 <option value="All">All Statuses</option>
 
@@ -583,8 +665,10 @@ function AdminAssetsContent() {
 
               <select
                 value={assetFilter}
-                onChange={(e) => setAssetFilter(e.target.value)}
-                className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-500"
+                onChange={(e) =>
+                  setAssetFilter(e.target.value)
+                }
+                className="rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
               >
                 <option value="All">All Assets</option>
 
@@ -603,24 +687,26 @@ function AdminAssetsContent() {
               <p className="font-semibold">
                 Unable to load asset requests.
               </p>
+
               <p className="mt-1">{error}</p>
             </div>
           )}
 
-          {/* Table */}
+          {/* Asset Requests */}
           <section className="overflow-hidden rounded-2xl border border-violet-100 bg-white shadow-sm">
             <div className="border-b border-violet-100 px-5 py-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-slate-900">
-                    Asset Borrowing Requests
-                  </h3>
+              <div>
+                <h3 className="font-bold text-slate-900">
+                  Asset Borrowing Requests
+                </h3>
 
-                  <p className="mt-1 text-sm text-slate-500">
-                    {filteredRequests.length} request
-                    {filteredRequests.length !== 1 ? "s" : ""} found
-                  </p>
-                </div>
+                <p className="mt-1 text-sm text-slate-500">
+                  {filteredRequests.length} request
+                  {filteredRequests.length !== 1
+                    ? "s"
+                    : ""}{" "}
+                  found
+                </p>
               </div>
             </div>
 
@@ -631,6 +717,7 @@ function AdminAssetsContent() {
                     size={32}
                     className="mx-auto animate-spin text-violet-600"
                   />
+
                   <p className="mt-3 text-sm text-slate-500">
                     Loading asset requests...
                   </p>
@@ -643,12 +730,14 @@ function AdminAssetsContent() {
                     size={42}
                     className="mx-auto text-slate-300"
                   />
+
                   <h3 className="mt-4 font-semibold text-slate-800">
                     No asset requests found
                   </h3>
+
                   <p className="mt-1 text-sm text-slate-500">
-                    New borrowing requests will appear here once
-                    residents submit them.
+                    New borrowing requests will appear
+                    here once residents submit them.
                   </p>
                 </div>
               </div>
@@ -662,15 +751,19 @@ function AdminAssetsContent() {
                         <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Borrower
                         </th>
+
                         <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Asset
                         </th>
+
                         <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Schedule
                         </th>
+
                         <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Status
                         </th>
+
                         <th className="px-5 py-4 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Action
                         </th>
@@ -678,120 +771,142 @@ function AdminAssetsContent() {
                     </thead>
 
                     <tbody className="divide-y divide-slate-100">
-                      {filteredRequests.map((request) => (
-                        <tr
-                          key={request.id}
-                          className="transition hover:bg-violet-50/40"
-                        >
-                          <td className="px-5 py-4">
-                            <p className="font-semibold text-slate-800">
-                              {request.borrowerName}
-                            </p>
+                      {filteredRequests.map(
+                        (request) => (
+                          <tr
+                            key={request.id}
+                            className="transition hover:bg-violet-50/40"
+                          >
+                            <td className="px-5 py-4">
+                              <p className="font-semibold text-slate-800">
+                                {request.borrowerName}
+                              </p>
 
-                            <p className="mt-1 text-xs text-slate-500">
-                              {request.purokStreet}
-                            </p>
-                          </td>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {request.purokStreet}
+                              </p>
+                            </td>
 
-                          <td className="px-5 py-4">
-                            <p className="font-medium text-slate-800">
-                              {request.assetName}
-                            </p>
+                            <td className="px-5 py-4">
+                              <p className="font-medium text-slate-800">
+                                {request.assetName}
+                              </p>
 
-                            <p className="mt-1 text-xs text-slate-500">
-                              Quantity: {request.quantity}
-                            </p>
-                          </td>
+                              <p className="mt-1 text-xs text-slate-500">
+                                Quantity:{" "}
+                                {request.quantity}
+                              </p>
+                            </td>
 
-                          <td className="px-5 py-4">
-                            <p className="text-sm text-slate-700">
-                              {formatDate(request.borrowDate)}
-                            </p>
+                            <td className="px-5 py-4">
+                              <p className="text-sm text-slate-700">
+                                {formatDate(
+                                  request.borrowDate
+                                )}
+                              </p>
 
-                            <p className="mt-1 text-xs text-slate-500">
-                              Return:{" "}
-                              {formatDate(
-                                request.expectedReturnDate
-                              )}
-                            </p>
-                          </td>
+                              <p className="mt-1 text-xs text-slate-500">
+                                Return:{" "}
+                                {formatDate(
+                                  request.expectedReturnDate
+                                )}
+                              </p>
+                            </td>
 
-                          <td className="px-5 py-4">
-                            <StatusBadge status={request.status} />
-                          </td>
+                            <td className="px-5 py-4">
+                              <StatusBadge
+                                status={request.status}
+                              />
+                            </td>
 
-                          <td className="px-5 py-4 text-right">
-                            <button
-                              onClick={() => openRequest(request)}
-                              className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-700"
-                            >
-                              <Eye size={15} />
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                            <td className="px-5 py-4 text-right">
+                              <button
+                                onClick={() =>
+                                  openRequest(
+                                    request
+                                  )
+                                }
+                                className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-700"
+                              >
+                                <Eye size={15} />
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      )}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Mobile */}
                 <div className="divide-y divide-slate-100 lg:hidden">
-                  {filteredRequests.map((request) => (
-                    <button
-                      key={request.id}
-                      onClick={() => openRequest(request)}
-                      className="w-full p-5 text-left hover:bg-violet-50/50"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <p className="font-semibold text-slate-900">
-                            {request.borrowerName}
-                          </p>
+                  {filteredRequests.map(
+                    (request) => (
+                      <button
+                        key={request.id}
+                        onClick={() =>
+                          openRequest(request)
+                        }
+                        className="w-full p-5 text-left transition hover:bg-violet-50/50"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="font-semibold text-slate-900">
+                              {request.borrowerName}
+                            </p>
 
-                          <p className="mt-1 text-sm text-slate-500">
-                            {request.assetName} · Qty{" "}
-                            {request.quantity}
-                          </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                              {request.assetName} ·
+                              Qty{" "}
+                              {request.quantity}
+                            </p>
+                          </div>
+
+                          <StatusBadge
+                            status={request.status}
+                          />
                         </div>
 
-                        <StatusBadge status={request.status} />
-                      </div>
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          <div>
+                            <p className="text-xs text-slate-400">
+                              Borrow Date
+                            </p>
 
-                      <div className="mt-4 grid grid-cols-2 gap-3">
-                        <div>
-                          <p className="text-xs text-slate-400">
-                            Borrow Date
-                          </p>
-                          <p className="mt-1 text-sm font-medium text-slate-700">
-                            {formatDate(request.borrowDate)}
-                          </p>
+                            <p className="mt-1 text-sm font-medium text-slate-700">
+                              {formatDate(
+                                request.borrowDate
+                              )}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs text-slate-400">
+                              Expected Return
+                            </p>
+
+                            <p className="mt-1 text-sm font-medium text-slate-700">
+                              {formatDate(
+                                request.expectedReturnDate
+                              )}
+                            </p>
+                          </div>
                         </div>
 
-                        <div>
-                          <p className="text-xs text-slate-400">
-                            Expected Return
-                          </p>
-                          <p className="mt-1 text-sm font-medium text-slate-700">
-                            {formatDate(
-                              request.expectedReturnDate
-                            )}
-                          </p>
+                        <div className="mt-4 flex items-center justify-between text-xs font-semibold text-violet-600">
+                          View Request
+                          <ChevronRight size={16} />
                         </div>
-                      </div>
-
-                      <div className="mt-4 flex items-center justify-between text-xs font-semibold text-violet-600">
-                        View Request
-                        <ChevronRight size={16} />
-                      </div>
-                    </button>
-                  ))}
+                      </button>
+                    )
+                  )}
                 </div>
               </>
             )}
           </section>
 
-          {/* Workflow */}
+          {/* Administrative Workflow */}
           <section className="rounded-2xl border border-violet-100 bg-white p-6 shadow-sm">
             <div className="flex items-start gap-4">
               <div className="rounded-xl bg-violet-50 p-3 text-violet-600">
@@ -804,12 +919,13 @@ function AdminAssetsContent() {
                 </h3>
 
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Review the borrower and witness information before
-                  approving a request. After approval, record the
-                  release of the asset. When the asset is returned,
-                  record its actual return date and condition. Damaged
-                  or lost assets can be documented together with any
-                  applicable penalty.
+                  Review the borrower and witness
+                  information before approving a request.
+                  After approval, record the release of the
+                  asset. When the asset is returned, record
+                  its actual return date and condition.
+                  Damaged or lost assets can be documented
+                  together with any applicable penalty.
                 </p>
 
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-semibold">
@@ -819,23 +935,26 @@ function AdminAssetsContent() {
                     "Approved",
                     "Released",
                     "Returned",
-                  ].map((status, index, array) => (
-                    <div
-                      key={status}
-                      className="flex items-center gap-2"
-                    >
-                      <span className="rounded-full bg-violet-100 px-3 py-1.5 text-violet-700">
-                        {status}
-                      </span>
+                  ].map(
+                    (status, index, array) => (
+                      <div
+                        key={status}
+                        className="flex items-center gap-2"
+                      >
+                        <span className="rounded-full bg-violet-100 px-3 py-1.5 text-violet-700">
+                          {status}
+                        </span>
 
-                      {index < array.length - 1 && (
-                        <ChevronRight
-                          size={14}
-                          className="text-slate-400"
-                        />
-                      )}
-                    </div>
-                  ))}
+                        {index <
+                          array.length - 1 && (
+                          <ChevronRight
+                            size={14}
+                            className="text-slate-400"
+                          />
+                        )}
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
             </div>
@@ -861,7 +980,9 @@ function AdminAssetsContent() {
 
               <button
                 onClick={closeRequest}
-                className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                disabled={saving}
+                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                aria-label="Close request"
               >
                 <X size={22} />
               </button>
@@ -877,17 +998,17 @@ function AdminAssetsContent() {
                       <UserRound size={20} />
                     </div>
 
-                    <div>
-                      <h3 className="font-bold text-slate-900">
-                        Borrower Information
-                      </h3>
-                    </div>
+                    <h3 className="font-bold text-slate-900">
+                      Borrower Information
+                    </h3>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <InfoRow
                       label="Full Name"
-                      value={selectedRequest.borrowerName}
+                      value={
+                        selectedRequest.borrowerName
+                      }
                     />
 
                     <InfoRow
@@ -899,7 +1020,9 @@ function AdminAssetsContent() {
 
                     <InfoRow
                       label="Purok / Street"
-                      value={selectedRequest.purokStreet}
+                      value={
+                        selectedRequest.purokStreet
+                      }
                     />
 
                     <InfoRow
@@ -916,22 +1039,24 @@ function AdminAssetsContent() {
                       <Package size={20} />
                     </div>
 
-                    <div>
-                      <h3 className="font-bold text-slate-900">
-                        Asset Information
-                      </h3>
-                    </div>
+                    <h3 className="font-bold text-slate-900">
+                      Asset Information
+                    </h3>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <InfoRow
                       label="Asset"
-                      value={selectedRequest.assetName}
+                      value={
+                        selectedRequest.assetName
+                      }
                     />
 
                     <InfoRow
                       label="Quantity"
-                      value={selectedRequest.quantity}
+                      value={
+                        selectedRequest.quantity
+                      }
                     />
 
                     <InfoRow
@@ -970,7 +1095,8 @@ function AdminAssetsContent() {
                       </h3>
 
                       <p className="text-xs text-slate-500">
-                        Must be a different person from the borrower
+                        Must be a different person
+                        from the borrower
                       </p>
                     </div>
                   </div>
@@ -978,7 +1104,9 @@ function AdminAssetsContent() {
                   <div className="grid gap-4 sm:grid-cols-3">
                     <InfoRow
                       label="Full Name"
-                      value={selectedRequest.witnessName}
+                      value={
+                        selectedRequest.witnessName
+                      }
                     />
 
                     <InfoRow
@@ -997,18 +1125,16 @@ function AdminAssetsContent() {
                   </div>
                 </section>
 
-                {/* Request info */}
+                {/* Request Information */}
                 <section className="rounded-2xl border border-slate-200 p-5 lg:col-span-2">
                   <div className="mb-5 flex items-center gap-3">
                     <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600">
                       <CalendarDays size={20} />
                     </div>
 
-                    <div>
-                      <h3 className="font-bold text-slate-900">
-                        Request Information
-                      </h3>
-                    </div>
+                    <h3 className="font-bold text-slate-900">
+                      Request Information
+                    </h3>
                   </div>
 
                   <div className="grid gap-4 sm:grid-cols-3">
@@ -1021,7 +1147,9 @@ function AdminAssetsContent() {
 
                     <InfoRow
                       label="Current Status"
-                      value={selectedRequest.status}
+                      value={
+                        selectedRequest.status
+                      }
                     />
 
                     <InfoRow
@@ -1031,7 +1159,7 @@ function AdminAssetsContent() {
                   </div>
                 </section>
 
-                {/* Admin controls */}
+                {/* Administrative Action */}
                 <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5 lg:col-span-2">
                   <div className="mb-5">
                     <h3 className="font-bold text-slate-900">
@@ -1039,12 +1167,13 @@ function AdminAssetsContent() {
                     </h3>
 
                     <p className="mt-1 text-sm text-slate-500">
-                      Update the request status and record
-                      administrative information.
+                      Update the request status and
+                      record administrative information.
                     </p>
                   </div>
 
                   <div className="grid gap-5 lg:grid-cols-2">
+                    {/* Status */}
                     <div>
                       <label className="mb-2 block text-sm font-semibold text-slate-700">
                         Status
@@ -1054,19 +1183,26 @@ function AdminAssetsContent() {
                         value={editStatus}
                         onChange={(e) =>
                           setEditStatus(
-                            e.target.value as AssetStatus
+                            e.target
+                              .value as AssetStatus
                           )
                         }
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                       >
-                        {statuses.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
+                        {statuses.map(
+                          (status) => (
+                            <option
+                              key={status}
+                              value={status}
+                            >
+                              {status}
+                            </option>
+                          )
+                        )}
                       </select>
                     </div>
 
+                    {/* Penalty */}
                     <div>
                       <label className="mb-2 block text-sm font-semibold text-slate-700">
                         Penalty
@@ -1075,56 +1211,75 @@ function AdminAssetsContent() {
                       <input
                         value={editPenalty}
                         onChange={(e) =>
-                          setEditPenalty(e.target.value)
+                          setEditPenalty(
+                            e.target.value
+                          )
                         }
                         placeholder="e.g. None / ₱500 / Applicable penalty"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                       />
                     </div>
 
+                    {/* Return Condition */}
                     <div>
                       <label className="mb-2 block text-sm font-semibold text-slate-700">
                         Return Condition
                       </label>
 
                       <select
-                        value={editReturnCondition}
-                        onChange={(e) =>
-                          setEditReturnCondition(e.target.value)
+                        value={
+                          editReturnCondition
                         }
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+                        onChange={(e) =>
+                          setEditReturnCondition(
+                            e.target.value
+                          )
+                        }
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                       >
-                        <option value="">Not yet recorded</option>
+                        <option value="">
+                          Not yet recorded
+                        </option>
+
                         <option value="Good Condition">
                           Good Condition
                         </option>
+
                         <option value="Minor Damage">
                           Minor Damage
                         </option>
+
                         <option value="Major Damage">
                           Major Damage
                         </option>
+
                         <option value="Lost">
                           Lost
                         </option>
                       </select>
                     </div>
 
+                    {/* Damage Details */}
                     <div>
                       <label className="mb-2 block text-sm font-semibold text-slate-700">
                         Damage Details
                       </label>
 
                       <input
-                        value={editDamageDetails}
+                        value={
+                          editDamageDetails
+                        }
                         onChange={(e) =>
-                          setEditDamageDetails(e.target.value)
+                          setEditDamageDetails(
+                            e.target.value
+                          )
                         }
                         placeholder="Describe any damage"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                       />
                     </div>
 
+                    {/* Loss Details */}
                     <div>
                       <label className="mb-2 block text-sm font-semibold text-slate-700">
                         Loss Details
@@ -1133,13 +1288,16 @@ function AdminAssetsContent() {
                       <input
                         value={editLossDetails}
                         onChange={(e) =>
-                          setEditLossDetails(e.target.value)
+                          setEditLossDetails(
+                            e.target.value
+                          )
                         }
                         placeholder="Describe any lost asset"
-                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                       />
                     </div>
 
+                    {/* Admin Notes */}
                     <div className="lg:col-span-2">
                       <label className="mb-2 block text-sm font-semibold text-slate-700">
                         Admin Notes
@@ -1148,15 +1306,18 @@ function AdminAssetsContent() {
                       <textarea
                         value={editNotes}
                         onChange={(e) =>
-                          setEditNotes(e.target.value)
+                          setEditNotes(
+                            e.target.value
+                          )
                         }
                         rows={4}
                         placeholder="Add internal administrative notes..."
-                        className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+                        className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                       />
                     </div>
                   </div>
 
+                  {/* Rejection Warning */}
                   {editStatus === "Rejected" && (
                     <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
                       <div className="flex gap-3">
@@ -1166,8 +1327,29 @@ function AdminAssetsContent() {
                         />
 
                         <p>
-                          A reason in Admin Notes is required when
-                          rejecting a request.
+                          A reason in Admin Notes is
+                          required when rejecting a
+                          request.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Damage / Loss Warning */}
+                  {(editStatus === "Damaged" ||
+                    editStatus === "Lost") && (
+                    <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-700">
+                      <div className="flex gap-3">
+                        <AlertCircle
+                          size={18}
+                          className="mt-0.5 shrink-0"
+                        />
+
+                        <p>
+                          Please make sure the return
+                          condition, damage/loss details,
+                          and applicable penalty are
+                          properly recorded before saving.
                         </p>
                       </div>
                     </div>
@@ -1181,7 +1363,7 @@ function AdminAssetsContent() {
               <button
                 onClick={closeRequest}
                 disabled={saving}
-                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -1189,7 +1371,7 @@ function AdminAssetsContent() {
               <button
                 onClick={saveChanges}
                 disabled={saving}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? (
                   <>
