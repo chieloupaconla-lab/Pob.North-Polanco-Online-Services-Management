@@ -48,6 +48,7 @@ function configureFirebaseEmulators(): void {
   process.env.FIREBASE_AUTH_EMULATOR_HOST ||= "127.0.0.1:9099";
 }
 
+
 function normalizePrivateKey(value: string): string {
   let normalized = value
     .replace(/\\n/g, "\n")
@@ -68,6 +69,7 @@ function normalizePrivateKey(value: string): string {
 
   return normalized;
 }
+
 
 function logPrivateKeyDiagnostics(
   rawValue: string,
