@@ -1,16 +1,12 @@
 export type DocumentStatus = "Pending" | "Under Review" | "Approved" | "Rejected" | "Completed";
 
-export type DocumentType =
-  | "Barangay Clearance"
-  | "Barangay Certificate"
-  | "Certificate of Residency"
-  | "Certificate of Indigency"
-  | "Other Barangay Document";
+export type DocumentType = string;
 
 export interface DocumentRequest {
   id: string;
   fullName: string;
-  purokStreet: string;
+  email?: string;
+  purok: string;
   documentType: DocumentType;
   purpose: string;
   status: DocumentStatus;
@@ -22,7 +18,8 @@ export interface DocumentRequest {
 
 export interface DocumentRequestFormData {
   fullName: string;
-  purokStreet: string;
+  email: string;
+  purok: string;
   documentType: DocumentType;
   purpose: string;
 }

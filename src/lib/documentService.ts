@@ -1,14 +1,7 @@
-import { DocumentRequest, DocumentType, DocumentStatus } from "@/types/documents";
+import { DocumentRequest, DocumentStatus } from "@/types/documents";
+import { DOCUMENT_TYPES } from "@/config/documentTypes";
 
 const STORAGE_KEY = "barangay-document-requests";
-
-const DOCUMENT_TYPES: DocumentType[] = [
-  "Barangay Clearance",
-  "Barangay Certificate",
-  "Certificate of Residency",
-  "Certificate of Indigency",
-  "Other Barangay Document",
-];
 
 function generateId(): string {
   return `DOC-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -54,7 +47,7 @@ function seedData(): void {
     {
       id: generateId(),
       fullName: "Maria Santos",
-      purokStreet: "Purok 3, Mabini Street",
+       purok: "Purok Lapu-Lapu",
       documentType: "Barangay Clearance",
       purpose: "Employment application",
       status: "Pending",
@@ -65,7 +58,7 @@ function seedData(): void {
     {
       id: generateId(),
       fullName: "Juan Dela Cruz",
-      purokStreet: "Purok 1, Rizal Avenue",
+       purok: "Purok Quezon",
       documentType: "Certificate of Residency",
       purpose: "School enrollment",
       status: "Pending",
@@ -76,7 +69,7 @@ function seedData(): void {
     {
       id: generateId(),
       fullName: "Pedro Reyes",
-      purokStreet: "Purok 5, Bonifacio Street",
+       purok: "Purok Bonifacio",
       documentType: "Barangay Certificate",
       purpose: "Business permit",
       status: "Under Review",
@@ -87,7 +80,7 @@ function seedData(): void {
     {
       id: generateId(),
       fullName: "Ana Reyes",
-      purokStreet: "Purok 2, Aguinaldo Street",
+       purok: "Purok Rizal",
       documentType: "Certificate of Indigency",
       purpose: "Financial assistance",
       status: "Approved",
@@ -99,7 +92,7 @@ function seedData(): void {
     {
       id: generateId(),
       fullName: "Jose Rizal",
-      purokStreet: "Purok 4, Mabini Street",
+       purok: "Purok Lapu-Lapu",
       documentType: "Other Barangay Document",
       purpose: "General certification",
       status: "Rejected",
@@ -130,6 +123,10 @@ export async function getDocumentRequestById(
 export async function createDocumentRequest(
   data: Omit<DocumentRequest, "id" | "status" | "adminNotes" | "createdAt" | "updatedAt" | "completedAt">
 ): Promise<DocumentRequest> {
+  if (!DOCUMENT_TYPES.includes(data.documentType as (typeof DOCUMENT_TYPES)[number])) {
+    throw new Error("Invalid document type");
+  }
+
   const request: DocumentRequest = {
     ...data,
     id: generateId(),
@@ -181,5 +178,3 @@ export async function updateAdminNotes(
   saveRequests(requests);
   return requests[index];
 }
-
-export { DOCUMENT_TYPES };

@@ -1,5 +1,6 @@
 
 import React from "react";
+import Link from "next/link";
 
 export default function Footer() {
   return (
@@ -11,14 +12,15 @@ export default function Footer() {
             Municipality of Polanco. All rights reserved.
           </p>
 
-          <div className="flex gap-4">
+          <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
             <span>Official Government Portal</span>
             <span>•</span>
             <span>Polanco, Zamboanga del Norte</span>
+            <span>•</span>
+            <Link href="/staff-access" className="text-slate-500 transition hover:text-slate-300">Staff Access</Link>
           </div>
         </div>
       </div>
     </footer>
   );
 }
-

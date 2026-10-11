@@ -9,6 +9,7 @@ import {
   Plus,
   Users,
 } from "lucide-react";
+import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
 
 interface EquipmentItem {
   id: string;
@@ -33,7 +34,9 @@ export default function BorrowEquipmentForm() {
   const [contact, setContact] = useState("");
   const [witness, setWitness] = useState("");
   const [witnessContact, setWitnessContact] = useState("");
+  const [purok, setPurok] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const verificationStatus = useResidentVerification(borrower, purok);
 
   const updateQty = (id: string, delta: number, max: number) => {
     setQty((prev) => {
@@ -46,6 +49,7 @@ export default function BorrowEquipmentForm() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (verificationStatus !== "verified") return;
     setSubmitted(true);
   };
 
@@ -177,7 +181,9 @@ export default function BorrowEquipmentForm() {
           <Input id="borrower" label="Borrower Full Name" value={borrower} onChange={setBorrower} placeholder="Your Full Name" required />
           <Input id="contact" label="Borrower Contact" value={contact} onChange={setContact} placeholder="09XX XXX XXXX" required />
           <Input id="witness" label="Witness / Emergency Contact" value={witness} onChange={setWitness} placeholder="Maria Dela Cruz" required />
-          <Input id="witnessContact" label="Witness Contact Number" value={witnessContact} onChange={setWitnessContact} placeholder="09XX XXX XXXX" required />
+              <Input id="witnessContact" label="Witness Contact Number" value={witnessContact} onChange={setWitnessContact} placeholder="09XX XXX XXXX" required />
+           <div className="space-y-1.5"><label htmlFor="borrowerPurok" className="text-[11px] font-semibold text-[#17213A]">Purok</label><ResidentLocationSelect id="borrowerPurok" value={purok} onChange={setPurok} /></div>
+          <ResidentVerificationPanel status={verificationStatus} />
         </div>
 
         <div className="rounded-xl bg-amber-50 border border-amber-100 p-3 text-[11px] text-amber-900 leading-snug">
@@ -187,7 +193,7 @@ export default function BorrowEquipmentForm() {
 
         <button
           type="submit"
-          disabled={selectedCount === 0}
+          disabled={selectedCount === 0 || verificationStatus !== "verified"}
           className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#6D3FE7] hover:bg-[#5B32CC] disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6D3FE7]/40 focus-visible:ring-offset-2 transition-all"
         >
           <Send className="w-4 h-4" />

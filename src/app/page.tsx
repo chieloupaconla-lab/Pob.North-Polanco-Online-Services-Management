@@ -22,8 +22,44 @@ import {
 } from "lucide-react";
 
 export default function Home() {
+  const siteUrl = "https://pob-north-polanco-online-services-management-bb05z9zbs.vercel.app";
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "GovernmentOrganization",
+        "@id": `${siteUrl}/#organization`,
+        name: "Barangay Poblacion North",
+        url: siteUrl,
+        address: {
+          "@type": "PostalAddress",
+          addressLocality: "Polanco",
+          addressRegion: "Zamboanga del Norte",
+          addressCountry: "PH",
+        },
+        openingHours: "Mo-Fr 08:00-17:00",
+      },
+      {
+        "@type": "WebSite",
+        "@id": `${siteUrl}/#website`,
+        name: "Barangay Poblacion North Online Services",
+        url: siteUrl,
+        publisher: { "@id": `${siteUrl}/#organization` },
+      },
+      {
+        "@type": "WebPage",
+        "@id": `${siteUrl}/#webpage`,
+        name: "Barangay Poblacion North Online Services",
+        url: siteUrl,
+        isPartOf: { "@id": `${siteUrl}/#website` },
+        about: { "@id": `${siteUrl}/#organization` },
+      },
+    ],
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans antialiased">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
       {/* HEADER */}
       <Navbar />
 
@@ -31,7 +67,7 @@ export default function Home() {
       <section className="relative bg-gradient-to-br from-indigo-950 via-indigo-900 to-violet-950 text-white overflow-hidden py-16 lg:py-20 border-b border-indigo-800">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:32px_32px]"></div>
         
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-">
           <div className="max-w-3xl space-y-6 text-center sm:text-left">
             <div className="inline-flex items-center gap-2 bg-indigo-800/80 border border-indigo-700 px-3.5 py-1.5 rounded-full text-xs font-semibold text-indigo-200">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -46,7 +82,7 @@ export default function Home() {
               Serving the community of Barangay Poblacion North, Municipality of Polanco, Zamboanga del Norte. Access barangay documents, report community concerns, apply for equipment borrowing, and track service status conveniently online.
             </p>
 
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 pt-2">
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 pt-20">
               
               
             </div>
@@ -109,7 +145,7 @@ export default function Home() {
                 1. Request a Document
               </h3>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Apply for official barangay documents including Barangay Clearance, Certificate of Residency, Certificate of Indigency, First-Time Jobseeker Certificate, or Business Clearance.
+                Apply for Barangay Clearance, Certificate of Residency, Barangay Business Clearance, or Community Tax Certificate (Cedula).
               </p>
               <div className="pt-2 text-[11px] text-slate-500 font-medium space-y-1 bg-slate-50 p-3 rounded-lg border border-slate-100">
                 <div className="font-semibold text-slate-700">Required Resident Info:</div>
@@ -271,8 +307,21 @@ export default function Home() {
 
       {/* DETAILED SERVICE INFORMATION SECTIONS */}
       <section className="py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
-        
-      
+        <div className="rounded-3xl border border-indigo-100 bg-indigo-50/60 p-6 sm:p-8">
+          <h2 className="text-2xl font-extrabold tracking-tight text-slate-900">Barangay Poblacion North Online Services</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+            The official online services portal of Barangay Poblacion North, Polanco, Zamboanga del Norte helps residents request barangay documents, report public facility concerns, and request barangay-owned equipment borrowing services.
+          </p>
+          <div className="mt-5 grid gap-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-4">
+            <span className="rounded-xl bg-white p-3">Barangay Clearance</span>
+            <span className="rounded-xl bg-white p-3">Certificate of Residency</span>
+             <span className="rounded-xl bg-white p-3">Barangay Business Clearance</span>
+             <span className="rounded-xl bg-white p-3">Community Tax Certificate (Cedula)</span>
+            <span className="rounded-xl bg-white p-3">Public facility concern reporting</span>
+            <span className="rounded-xl bg-white p-3">Barangay-owned equipment borrowing</span>
+            <span className="rounded-xl bg-white p-3">Barangay Hall: Monday-Friday, 8:00 AM-5:00 PM</span>
+          </div>
+        </div>
       </section>
 
       {/* FOOTER */}

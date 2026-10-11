@@ -101,7 +101,7 @@ export default function RequestDetailModal({
             />
             <DetailRow
               icon={<MapPin className="w-4 h-4" />}
-              label="Purok / Street"
+               label="Purok"
               value={request.purok ?? "Poblacion North"}
             />
           </div>

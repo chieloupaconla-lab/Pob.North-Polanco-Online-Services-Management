@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import {
@@ -17,24 +17,27 @@ import {
 } from "lucide-react";
 
 import { db } from "@/lib/firebase";
-
-const assetOptions = [
-  "Chairs",
-  "Tables",
-  "Tents",
-  "Sound System",
-  "Other Barangay-Owned Asset",
-];
+import { logActivity } from "@/lib/activityLog";
+import { createAdminNotification } from "@/lib/notifications";
+import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
+import { isOfficialPurok } from "@/lib/purokConfig";
+import {
+  EquipmentInventory,
+  getAvailableEquipmentInventory,
+} from "@/lib/inventoryService";
 
 export default function AssetsPage() {
+  const [inventory, setInventory] = useState<EquipmentInventory[]>([]);
+  const [inventoryLoading, setInventoryLoading] = useState(true);
+  const [inventoryError, setInventoryError] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-
   const [formData, setFormData] = useState({
     borrowerName: "",
+    email: "",
     borrowerContactNumber: "",
-    purokStreet: "",
+    purok: "",
     assetName: "",
     quantity: "1",
     purpose: "",
@@ -45,6 +48,41 @@ export default function AssetsPage() {
     witnessContactNumber: "",
     penaltyAgreement: false,
   });
+  const verificationStatus = useResidentVerification(formData.borrowerName, formData.purok);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadInventory = async () => {
+      try {
+        const data = await getAvailableEquipmentInventory();
+
+        if (!active) return;
+
+        setInventory(data);
+      } catch (loadError) {
+        console.error("Error loading equipment inventory:", loadError);
+
+        if (active) {
+          setInventoryError(
+            "Unable to load the asset list. Please try again later."
+          );
+        }
+      } finally {
+        if (active) setInventoryLoading(false);
+      }
+    };
+
+    loadInventory();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const selectedAsset = inventory.find(
+    (item) => item.name === formData.assetName
+  );
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -69,6 +107,7 @@ export default function AssetsPage() {
 
     const borrower = formData.borrowerName.trim().toLowerCase();
     const witness = formData.witnessName.trim().toLowerCase();
+    const email = formData.email.trim().toLowerCase();
 
     if (borrower === witness) {
       setError(
@@ -77,10 +116,21 @@ export default function AssetsPage() {
       return;
     }
 
+    if (!isOfficialPurok(formData.purok)) {
+      setError("Please select an official Purok.");
+      return;
+    }
+
+
     if (formData.borrowDate > formData.expectedReturnDate) {
       setError(
         "The expected return date cannot be earlier than the borrow date."
       );
+      return;
+    }
+
+    if (verificationStatus !== "verified") {
+      setError("Please verify your resident information before submitting.");
       return;
     }
 
@@ -91,14 +141,30 @@ export default function AssetsPage() {
       return;
     }
 
+    if (!selectedAsset) {
+      setError("Please select an available asset from the inventory.");
+      return;
+    }
+
+    if (
+      Number(formData.quantity) < 1 ||
+      Number(formData.quantity) > selectedAsset.availableQuantity
+    ) {
+      setError(
+        `Only ${selectedAsset.availableQuantity} ${selectedAsset.unit} of ${selectedAsset.name} available.`
+      );
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      await addDoc(collection(db, "assets"), {
+      const requestRef = await addDoc(collection(db, "assets"), {
         // Borrower information
         borrowerName: formData.borrowerName.trim(),
+        email,
         borrowerContactNumber: formData.borrowerContactNumber.trim(),
-        purokStreet: formData.purokStreet.trim(),
+         purok: formData.purok.trim(),
 
         // Asset information
         assetName: formData.assetName,
@@ -132,12 +198,43 @@ export default function AssetsPage() {
         updatedAt: serverTimestamp(),
       });
 
+      await logActivity({
+        action: "EQUIPMENT_BORROW_REQUESTED",
+        category: "Equipment",
+        description: `${formData.borrowerName.trim()} requested to borrow ${formData.quantity} ${formData.assetName}.`,
+        actorType: "resident",
+        actorName: formData.borrowerName.trim(),
+        referenceId: requestRef.id,
+        referenceType: "asset",
+        status: "Pending",
+        metadata: {
+          assetName: formData.assetName,
+          quantity: Number(formData.quantity),
+          borrowDate: formData.borrowDate,
+          expectedReturnDate: formData.expectedReturnDate,
+        },
+      });
+
+      await createAdminNotification({
+        title: "New Equipment Borrowing Request",
+        message: `${formData.borrowerName.trim()} requested to borrow barangay equipment.`,
+        type: "equipment",
+        referenceId: requestRef.id,
+        referenceType: "asset",
+        actionUrl: "/admin/assets",
+        metadata: {
+          assetName: formData.assetName,
+          quantity: Number(formData.quantity),
+        },
+      });
+
       setSubmitted(true);
 
       setFormData({
         borrowerName: "",
+        email: "",
         borrowerContactNumber: "",
-        purokStreet: "",
+         purok: "",
         assetName: "",
         quantity: "1",
         purpose: "",
@@ -370,20 +467,16 @@ export default function AssetsPage() {
                 />
               </div>
 
+              
+
               <div className="sm:col-span-2">
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Purok / Street{" "}
+                   Purok{" "}
                   <span className="text-red-500">*</span>
                 </label>
 
-                <input
-                  required
-                  name="purokStreet"
-                  value={formData.purokStreet}
-                  onChange={handleChange}
-                  placeholder="Enter your purok or street"
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
-                />
+                 <ResidentLocationSelect id="assetPurok" value={formData.purok} onChange={(value) => setFormData((current) => ({ ...current, purok: value }))} />
+                <div className="mt-3"><ResidentVerificationPanel status={verificationStatus} /></div>
               </div>
             </div>
           </section>
@@ -416,18 +509,48 @@ export default function AssetsPage() {
                   required
                   name="assetName"
                   value={formData.assetName}
-                  onChange={handleChange}
+                  onChange={(e) => {
+                    const nextAsset = inventory.find(
+                      (item) => item.name === e.target.value
+                    );
+
+                    setFormData((current) => ({
+                      ...current,
+                      assetName: e.target.value,
+                      quantity: nextAsset
+                        ? String(
+                            Math.min(
+                              Number(current.quantity) || 1,
+                              nextAsset.availableQuantity
+                            )
+                          )
+                        : "1",
+                    }));
+                  }}
+                  disabled={inventoryLoading || inventory.length === 0}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                 >
-                  <option value="">Select an asset</option>
+                  <option value="">
+                    {inventoryLoading
+                      ? "Loading assets..."
+                      : inventory.length === 0
+                        ? "No assets available"
+                        : "Select an asset"}
+                  </option>
 
-                  {assetOptions.map((asset) => (
-                    <option key={asset} value={asset}>
-                      {asset}
+                  {inventory.map((item) => (
+                    <option key={item.id} value={item.name}>
+                      {item.name} ({item.availableQuantity} {item.unit} available)
                     </option>
                   ))}
                 </select>
-              </div>
+
+                {inventoryError && (
+                  <p className="mt-2 text-xs text-red-600">
+                    {inventoryError}
+                  </p>
+                )}
+               </div>
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
@@ -441,9 +564,16 @@ export default function AssetsPage() {
                   value={formData.quantity}
                   onChange={handleChange}
                   min="1"
-                  max="1000"
+                  max={selectedAsset?.availableQuantity ?? 1}
+                  disabled={!selectedAsset}
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
                 />
+
+                {selectedAsset && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    {selectedAsset.availableQuantity} {selectedAsset.unit} currently available.
+                  </p>
+                )}
               </div>
 
               <div className="sm:col-span-2">
@@ -671,7 +801,7 @@ export default function AssetsPage() {
           {/* Submit */}
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || verificationStatus !== "verified"}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-violet-600 px-6 py-4 text-sm font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? (

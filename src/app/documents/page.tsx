@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -13,25 +13,14 @@ import {
   Mail,
   Send,
 } from "lucide-react";
-import {
-  addDoc,
-  collection,
-  serverTimestamp,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
-
-const documentTypes = [
-  "Barangay Clearance",
-  "Barangay Certificate",
-  "Certificate of Residency",
-  "Certificate of Indigency",
-  "Other Barangay Document",
-];
+import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
+import { isOfficialPurok } from "@/lib/purokConfig";
+import { DOCUMENT_TYPES, isCurrentDocumentType } from "@/config/documentTypes";
 
 type FormData = {
   fullName: string;
   email: string;
-  purokStreet: string;
+  purok: string;
   documentType: string;
   purpose: string;
 };
@@ -40,7 +29,7 @@ export default function DocumentsPage() {
   const [formData, setFormData] = useState<FormData>({
     fullName: "",
     email: "",
-    purokStreet: "",
+    purok: "",
     documentType: "",
     purpose: "",
   });
@@ -48,6 +37,8 @@ export default function DocumentsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const submissionIdRef = useRef(crypto.randomUUID().replace(/-/g, ""));
+  const verificationStatus = useResidentVerification(formData.fullName, formData.purok);
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -71,8 +62,7 @@ export default function DocumentsPage() {
 
     const cleanFullName = formData.fullName.trim();
     const cleanEmail = formData.email.trim().toLowerCase();
-    const cleanPurokStreet =
-      formData.purokStreet.trim();
+    const cleanPurok = formData.purok.trim();
     const cleanDocumentType =
       formData.documentType.trim();
     const cleanPurpose = formData.purpose.trim();
@@ -80,13 +70,23 @@ export default function DocumentsPage() {
     if (
       !cleanFullName ||
       !cleanEmail ||
-      !cleanPurokStreet ||
+      !cleanPurok ||
       !cleanDocumentType ||
       !cleanPurpose
     ) {
       setErrorMessage(
         "Please complete all required fields."
       );
+      return;
+    }
+
+    if (!isCurrentDocumentType(cleanDocumentType)) {
+      setErrorMessage("Please select an approved document type.");
+      return;
+    }
+
+    if (!isOfficialPurok(cleanPurok)) {
+      setErrorMessage("Please select an official Purok.");
       return;
     }
 
@@ -100,23 +100,28 @@ export default function DocumentsPage() {
       return;
     }
 
+    if (verificationStatus !== "verified") {
+      setErrorMessage("Please verify your resident information before submitting.");
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
-      await addDoc(collection(db, "documents"), {
-        fullName: cleanFullName,
-        email: cleanEmail,
-        purokStreet: cleanPurokStreet,
-        documentType: cleanDocumentType,
-        purpose: cleanPurpose,
-
-        status: "Pending",
-        adminNotes: "",
-
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        completedAt: null,
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          submissionId: submissionIdRef.current,
+          fullName: cleanFullName,
+          email: cleanEmail,
+          purok: cleanPurok,
+          documentType: cleanDocumentType,
+          purpose: cleanPurpose,
+        }),
       });
+      const result = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(result.message || "Document request submission failed.");
 
       setSubmitted(true);
     } catch (error) {
@@ -125,9 +130,7 @@ export default function DocumentsPage() {
         error
       );
 
-      setErrorMessage(
-        "We could not submit your request. Please check your internet connection and try again."
-      );
+      setErrorMessage(error instanceof TypeError ? "We could not reach the request service. Please check your connection and try again." : error instanceof Error ? error.message : "We could not submit your request. Please check your internet connection and try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -137,13 +140,14 @@ export default function DocumentsPage() {
     setFormData({
       fullName: "",
       email: "",
-      purokStreet: "",
+       purok: "",
       documentType: "",
       purpose: "",
     });
 
     setSubmitted(false);
     setErrorMessage("");
+    submissionIdRef.current = crypto.randomUUID().replace(/-/g, "");
 
     window.scrollTo({
       top: 0,
@@ -389,60 +393,21 @@ export default function DocumentsPage() {
                 />
               </div>
 
-              {/* Email / Gmail */}
+             
+
+              {/* Purok */}
               <div>
                 <label
-                  htmlFor="email"
+                  htmlFor="purok"
                   className="mb-2 block text-sm font-semibold text-gray-800"
                 >
-                  Email Address / Gmail{" "}
+                  Purok{" "}
                   <span className="text-red-500">*</span>
                 </label>
 
-                <div className="relative">
-                  <Mail className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <ResidentLocationSelect id="purok" value={formData.purok} onChange={(value) => setFormData((previous) => ({ ...previous, purok: value }))} />
 
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    placeholder="example@gmail.com"
-                    required
-                    disabled={isSubmitting}
-                    className="w-full rounded-xl border border-gray-300 bg-white py-3 pl-11 pr-4 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-gray-100"
-                  />
-                </div>
-
-                <p className="mt-2 text-xs leading-5 text-gray-500">
-                  Please provide an active email address.
-                  Status updates about your request will be
-                  sent here.
-                </p>
-              </div>
-
-              {/* Purok / Street */}
-              <div>
-                <label
-                  htmlFor="purokStreet"
-                  className="mb-2 block text-sm font-semibold text-gray-800"
-                >
-                  Purok / Street{" "}
-                  <span className="text-red-500">*</span>
-                </label>
-
-                <input
-                  id="purokStreet"
-                  name="purokStreet"
-                  type="text"
-                  value={formData.purokStreet}
-                  onChange={handleChange}
-                  placeholder="Enter your purok or street"
-                  required
-                  disabled={isSubmitting}
-                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-gray-100"
-                />
+                <ResidentVerificationPanel status={verificationStatus} />
 
                 <p className="mt-2 text-xs leading-5 text-gray-500">
                   Please enter your location within
@@ -474,7 +439,7 @@ export default function DocumentsPage() {
                     Select a document
                   </option>
 
-                  {documentTypes.map((document) => (
+                  {DOCUMENT_TYPES.map((document) => (
                     <option
                       key={document}
                       value={document}
@@ -525,7 +490,7 @@ export default function DocumentsPage() {
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || verificationStatus !== "verified"}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 px-5 py-3.5 text-sm font-semibold text-white shadow-md transition hover:from-purple-800 hover:to-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmitting ? (
@@ -574,4 +539,3 @@ export default function DocumentsPage() {
     </main>
   );
 }
-

@@ -25,7 +25,7 @@ export default function TopHeader({
 
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-2xs transition-all">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="safe-area-top mx-auto max-w-7xl px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 sm:h-20">
           {/* Barangay Branding */}
           <div className="flex items-center gap-3">
@@ -52,7 +52,7 @@ export default function TopHeader({
             <button
               onClick={handleNotificationClick}
               type="button"
-              className="relative p-2.5 rounded-xl text-slate-600 hover:text-[#6D3FE7] hover:bg-[#F0EAFF]/50 focus:outline-none focus:ring-2 focus:ring-[#6D3FE7]/20 transition-colors"
+              className="relative flex h-11 w-11 items-center justify-center rounded-xl text-slate-600 hover:text-[#6D3FE7] hover:bg-[#F0EAFF]/50 focus:outline-none focus:ring-2 focus:ring-[#6D3FE7]/20 transition-colors"
               aria-label="View my notifications"
               title="My Notifications"
             >
@@ -69,7 +69,7 @@ export default function TopHeader({
             <button
               onClick={onToggleMobileSidebar}
               type="button"
-              className="lg:hidden p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 focus:outline-none transition-colors"
+              className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 focus:outline-none transition-colors lg:hidden"
               aria-label="Toggle navigation menu"
             >
               {mobileSidebarOpen ? (
@@ -84,4 +84,3 @@ export default function TopHeader({
     </header>
   );
 }
-

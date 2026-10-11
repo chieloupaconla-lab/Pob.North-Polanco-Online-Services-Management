@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "emulators": "npx --yes firebase-tools emulators:start --only auth,firestore --project e-barangay-system-427d0",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

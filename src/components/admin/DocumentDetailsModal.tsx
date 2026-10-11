@@ -273,10 +273,10 @@ export default function DocumentDetailsModal({
               </div>
               <div className="rounded-xl border border-slate-100 bg-white p-3.5 space-y-1">
                 <span className="text-[10px] font-semibold text-[#6B7280] uppercase tracking-wide">
-                  Purok / Street
+                   Purok
                 </span>
                 <p className="text-xs font-bold text-[#17213A]">
-                  {currentRequest.purokStreet}
+                   {currentRequest.purok}
                 </p>
               </div>
             </div>

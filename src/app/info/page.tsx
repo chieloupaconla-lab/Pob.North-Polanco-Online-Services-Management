@@ -150,7 +150,7 @@ export default function InfoPage() {
             </div>
             <p className="text-sm text-slate-600 leading-relaxed">
               This public portal is strictly intended for residents of Barangay
-              Poblacion North, Polanco. Submitting a street or purok alone is
+              Poblacion North, Polanco. Submitting a Purok alone is
               not treated as complete proof of residency. All submissions are
               subject to validation by authorized barangay personnel before
               processing or issuance. No resident account creation is required.

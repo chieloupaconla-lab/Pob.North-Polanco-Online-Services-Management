@@ -19,7 +19,6 @@ import {
   Loader2,
   MapPin,
   MessageSquare,
-  RefreshCw,
   Search,
   ShieldCheck,
   User,
@@ -29,14 +28,29 @@ import {
 import {
   collection,
   doc,
+  getDocs,
+  limit,
   onSnapshot,
+  orderBy,
+  query,
   serverTimestamp,
+  startAfter,
   updateDoc,
+  type QueryDocumentSnapshot,
 } from "firebase/firestore";
 
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { notifyResidentStatus } from "@/lib/notify-resident";
+import { logActivity } from "@/lib/activityLog";
+import { createAdminNotification } from "@/lib/notifications";
+import { formatNameForDisplay } from "@/lib/nameUtils";
+import { archiveRecord, archiveRecords, restoreRecord } from "@/lib/archiveService";
 
 import AdminAuthGuard from "@/components/admin/AdminAuthGuard";
+import AdminFeatureShell from "@/components/admin/AdminFeatureShell";
+import { getStoredPurok } from "@/lib/purokConfig";
+import BulkArchiveBar from "@/components/admin/BulkArchiveBar";
+import { OFFICIAL_COMPLAINT_CATEGORIES } from "@/config/complaintCategories";
 
 type ComplaintStatus =
   | "Pending"
@@ -57,9 +71,13 @@ interface Complaint {
 
   fullName: string;
 
-  purokStreet: string;
+  email: string;
+
+  purok: string;
 
   category: string;
+
+  customConcern: string;
 
   description: string;
 
@@ -80,6 +98,7 @@ interface Complaint {
   submittedAt: string;
 
   createdAtValue: number;
+  archived?: boolean;
 }
 
 const statusOptions: ComplaintStatus[] = [
@@ -91,6 +110,7 @@ const statusOptions: ComplaintStatus[] = [
 ];
 
 const categoryOptions = [
+  ...OFFICIAL_COMPLAINT_CATEGORIES,
   "Community Concern",
   "Damaged Public Facility",
   "Road or Drainage Problem",
@@ -142,6 +162,66 @@ function getEvidenceStatusClasses(
   }
 }
 
+const COMPLAINTS_PAGE_SIZE = 50;
+
+function mapComplaintDocument(
+  complaintDoc: QueryDocumentSnapshot
+): Complaint {
+  const data = complaintDoc.data();
+  const createdAt = data.createdAt?.toDate
+    ? data.createdAt.toDate()
+    : null;
+
+  const normalizedStatus: ComplaintStatus =
+    statusOptions.includes(data.status)
+      ? data.status
+      : "Pending";
+
+  const normalizedSubmissionType: SubmissionType =
+    data.submissionType === "Provide My Name" ||
+    data.submissionType === "named"
+      ? "named"
+      : "anonymous";
+
+  const evidenceUrl =
+    typeof data.evidenceUrl === "string"
+      ? data.evidenceUrl
+      : "";
+
+  const evidenceUploadStatus =
+    typeof data.evidenceUploadStatus === "string"
+      ? data.evidenceUploadStatus
+      : evidenceUrl
+        ? "Uploaded"
+        : "No Photo";
+
+  return {
+    id: complaintDoc.id,
+    submissionType: normalizedSubmissionType,
+    fullName: formatNameForDisplay(data.fullName || ""),
+    email: data.email || "",
+    purok: getStoredPurok(data),
+    category: data.category || "Community Concern",
+    customConcern:
+      typeof data.customConcern === "string"
+        ? data.customConcern
+        : "",
+    description: data.description || "",
+    locationOfConcern: data.locationOfConcern || "",
+    incidentDate: data.incidentDate || "",
+    evidenceUrl,
+    evidenceUploadStatus,
+    status: normalizedStatus,
+    adminNotes: data.adminNotes || "",
+    assignedTo: data.assignedTo || "",
+    submittedAt: createdAt
+      ? createdAt.toLocaleString()
+      : "Recently submitted",
+    createdAtValue: createdAt ? createdAt.getTime() : 0,
+    archived: data.archived === true,
+  };
+}
+
 export default function AdminComplaintsPage() {
   return (
     <AdminAuthGuard>
@@ -153,6 +233,11 @@ export default function AdminComplaintsPage() {
 function AdminComplaintsContent() {
   const [complaints, setComplaints] =
     useState<Complaint[]>([]);
+
+  const [lastVisibleComplaint, setLastVisibleComplaint] =
+    useState<QueryDocumentSnapshot | null>(null);
+  const [hasMoreComplaints, setHasMoreComplaints] = useState(false);
+  const [loadingMoreComplaints, setLoadingMoreComplaints] = useState(false);
 
   const [loading, setLoading] =
     useState(true);
@@ -170,6 +255,8 @@ function AdminComplaintsContent() {
 
   const [categoryFilter, setCategoryFilter] =
     useState("All");
+  const [showArchived, setShowArchived] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [selectedComplaint, setSelectedComplaint] =
     useState<Complaint | null>(null);
@@ -202,156 +289,98 @@ function AdminComplaintsContent() {
    */
 
   useEffect(() => {
-    setLoading(true);
-    setError("");
+    // Keep only the newest page live. Older pages are fetched on demand.
+    // This avoids downloading the entire complaints collection on every page visit.
+    const complaintsQuery = query(
+      collection(db, "complaints"),
+      orderBy("createdAt", "desc"),
+      limit(COMPLAINTS_PAGE_SIZE)
+    );
 
-    const complaintsRef =
-      collection(db, "complaints");
+    const unsubscribe = onSnapshot(
+      complaintsQuery,
+      (snapshot) => {
+        const newestPage = snapshot.docs.map(mapComplaintDocument);
+        const newestIds = new Set(newestPage.map((item) => item.id));
 
-    const unsubscribe =
-      onSnapshot(
-        complaintsRef,
-        (snapshot) => {
-          const complaintList: Complaint[] =
-            snapshot.docs.map(
-              (complaintDoc) => {
-                const data =
-                  complaintDoc.data();
+        setLastVisibleComplaint(
+          snapshot.docs.length > 0
+            ? snapshot.docs[snapshot.docs.length - 1]
+            : null
+        );
+        setHasMoreComplaints(snapshot.docs.length === COMPLAINTS_PAGE_SIZE);
 
-                const createdAt =
-                  data.createdAt?.toDate
-                    ? data.createdAt.toDate()
-                    : null;
-
-                const normalizedStatus =
-                  statusOptions.includes(
-                    data.status
-                  )
-                    ? data.status
-                    : "Pending";
-
-                /*
-                 * IMPORTANT:
-                 *
-                 * Resident page stores:
-                 * "Provide My Name"
-                 * "Anonymous"
-                 *
-                 * Older records may have:
-                 * "named"
-                 *
-                 * Support all of them.
-                 */
-
-                const normalizedSubmissionType =
-                  data.submissionType ===
-                    "Provide My Name" ||
-                  data.submissionType ===
-                    "named"
-                    ? "named"
-                    : "anonymous";
-
-                /*
-                 * IMPORTANT PHOTO LOGIC:
-                 *
-                 * If evidenceUrl exists,
-                 * consider it uploaded even if
-                 * evidenceUploadStatus is missing.
-                 */
-
-                const evidenceUrl =
-                  typeof data.evidenceUrl ===
-                  "string"
-                    ? data.evidenceUrl
-                    : "";
-
-                const evidenceUploadStatus =
-                  typeof data.evidenceUploadStatus ===
-                  "string"
-                    ? data.evidenceUploadStatus
-                    : evidenceUrl
-                    ? "Uploaded"
-                    : "No Photo";
-
-                return {
-                  id: complaintDoc.id,
-
-                  submissionType:
-                    normalizedSubmissionType,
-
-                  fullName:
-                    data.fullName || "",
-
-                  purokStreet:
-                    data.purokStreet || "",
-
-                  category:
-                    data.category ||
-                    "Community Concern",
-
-                  description:
-                    data.description || "",
-
-                  locationOfConcern:
-                    data.locationOfConcern ||
-                    "",
-
-                  incidentDate:
-                    data.incidentDate || "",
-
-                  evidenceUrl,
-
-                  evidenceUploadStatus,
-
-                  status:
-                    normalizedStatus,
-
-                  adminNotes:
-                    data.adminNotes || "",
-
-                  assignedTo:
-                    data.assignedTo || "",
-
-                  submittedAt: createdAt
-                    ? createdAt.toLocaleString()
-                    : "Recently submitted",
-
-                  createdAtValue:
-                    createdAt
-                      ? createdAt.getTime()
-                      : 0,
-                };
-              }
-            );
-
-          complaintList.sort(
-            (a, b) =>
-              b.createdAtValue -
-              a.createdAtValue
+        // Preserve older pages already loaded, while allowing the live first page
+        // to overwrite stale copies of records that are also in the newest page.
+        setComplaints((current) => {
+          const merged = new Map<string, Complaint>();
+          current.forEach((item) => {
+            if (!newestIds.has(item.id)) merged.set(item.id, item);
+          });
+          newestPage.forEach((item) => merged.set(item.id, item));
+          return Array.from(merged.values()).sort(
+            (a, b) => b.createdAtValue - a.createdAtValue
           );
+        });
 
-          setComplaints(
-            complaintList
-          );
-
-          setLoading(false);
-        },
-        (snapshotError) => {
-          console.error(
-            "Error loading complaints:",
-            snapshotError
-          );
-
-          setError(
-            "Unable to load community concerns. Please check your Firebase permissions."
-          );
-
-          setLoading(false);
-        }
-      );
+        setLoading(false);
+        setError("");
+      },
+      (snapshotError) => {
+        console.error("Error loading complaints:", snapshotError);
+        setError(
+          "Unable to load community concerns. Please check Firebase permissions and quota status."
+        );
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);
+
+  const loadMoreComplaints = async () => {
+    if (!lastVisibleComplaint || !hasMoreComplaints || loadingMoreComplaints) {
+      return;
+    }
+
+    setLoadingMoreComplaints(true);
+    setError("");
+
+    try {
+      const olderPageQuery = query(
+        collection(db, "complaints"),
+        orderBy("createdAt", "desc"),
+        startAfter(lastVisibleComplaint),
+        limit(COMPLAINTS_PAGE_SIZE)
+      );
+      const olderPageSnapshot = await getDocs(olderPageQuery);
+      const olderPage = olderPageSnapshot.docs.map(mapComplaintDocument);
+
+      setComplaints((current) => {
+        const merged = new Map(current.map((item) => [item.id, item]));
+        olderPage.forEach((item) => merged.set(item.id, item));
+        return Array.from(merged.values()).sort(
+          (a, b) => b.createdAtValue - a.createdAtValue
+        );
+      });
+
+      setLastVisibleComplaint(
+        olderPageSnapshot.docs.length > 0
+          ? olderPageSnapshot.docs[olderPageSnapshot.docs.length - 1]
+          : lastVisibleComplaint
+      );
+      setHasMoreComplaints(
+        olderPageSnapshot.docs.length === COMPLAINTS_PAGE_SIZE
+      );
+    } catch (loadError) {
+      console.error("Unable to load older complaints:", loadError);
+      setError(
+        "Unable to load older complaints. Please try again when Firestore is available."
+      );
+    } finally {
+      setLoadingMoreComplaints(false);
+    }
+  };
 
   /*
    * ============================================================
@@ -368,15 +397,21 @@ function AdminComplaintsContent() {
 
       return complaints.filter(
         (complaint) => {
+           const matchesArchive = showArchived
+             ? complaint.archived === true
+             : complaint.archived !== true;
           const matchesSearch =
             !query ||
             complaint.fullName
               .toLowerCase()
               .includes(query) ||
-            complaint.purokStreet
+            complaint.purok
               .toLowerCase()
               .includes(query) ||
             complaint.category
+              .toLowerCase()
+              .includes(query) ||
+            complaint.customConcern
               .toLowerCase()
               .includes(query) ||
             complaint.description
@@ -402,7 +437,8 @@ function AdminComplaintsContent() {
           return (
             matchesSearch &&
             matchesStatus &&
-            matchesCategory
+            matchesCategory &&
+            matchesArchive
           );
         }
       );
@@ -411,7 +447,32 @@ function AdminComplaintsContent() {
       searchQuery,
       statusFilter,
       categoryFilter,
+      showArchived,
     ]);
+
+  const activeVisibleComplaints = showArchived ? [] : filteredComplaints;
+  const toggleSelected = (id: string, checked: boolean) => setSelectedIds((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id));
+  const selectAll = (checked: boolean) => setSelectedIds(checked ? activeVisibleComplaints.map((complaint) => complaint.id) : []);
+  const archiveSelected = async () => {
+    if (selectedIds.length === 0 || !window.confirm("Archive selected records?\n\nThese records will be removed from the active list but will remain safely stored and available in the Archive.")) return;
+    const count = selectedIds.length;
+    try {
+      await archiveRecords("complaints", selectedIds);
+      const archivedIds = new Set(selectedIds);
+      setComplaints((current) =>
+        current.map((item) =>
+          archivedIds.has(item.id) ? { ...item, archived: true } : item
+        )
+      );
+      const admin = auth.currentUser;
+      await logActivity({ action: "COMPLAINTS_BULK_ARCHIVED", category: "Complaints", description: `${admin?.email || "Administrator"} archived ${count} Complaints.`, actorType: "admin", actorName: admin?.email || "Administrator", actorId: admin?.uid, metadata: { count, recordIds: selectedIds } });
+      setSelectedIds([]);
+      window.alert(`${count} records archived successfully.`);
+    } catch (error) {
+      console.error("Unable to archive selected complaints:", error);
+      setError("Unable to archive the selected complaints.");
+    }
+  };
 
   /*
    * ============================================================
@@ -420,21 +481,24 @@ function AdminComplaintsContent() {
    */
 
   const summary = useMemo(() => {
+    const scopedComplaints = showArchived
+      ? complaints.filter((complaint) => complaint.archived === true)
+      : complaints.filter((complaint) => complaint.archived !== true);
     return {
-      total: complaints.length,
+       total: scopedComplaints.length,
 
-      pending: complaints.filter(
+       pending: scopedComplaints.filter(
         (item) =>
           item.status === "Pending"
       ).length,
 
-      underReview: complaints.filter(
+       underReview: scopedComplaints.filter(
         (item) =>
           item.status ===
           "Under Review"
       ).length,
 
-      inProgress: complaints.filter(
+       inProgress: scopedComplaints.filter(
         (item) =>
           item.status ===
             "For Action" ||
@@ -442,17 +506,17 @@ function AdminComplaintsContent() {
             "In Progress"
       ).length,
 
-      resolved: complaints.filter(
+       resolved: scopedComplaints.filter(
         (item) =>
           item.status === "Resolved"
       ).length,
 
-      withPhoto: complaints.filter(
+       withPhoto: scopedComplaints.filter(
         (item) =>
           Boolean(item.evidenceUrl)
       ).length,
 
-      failedPhotos: complaints.filter(
+       failedPhotos: scopedComplaints.filter(
         (item) =>
           item.evidenceUploadStatus ===
             "Failed" ||
@@ -460,7 +524,7 @@ function AdminComplaintsContent() {
             "Failed - Image Too Large"
       ).length,
     };
-  }, [complaints]);
+  }, [complaints, showArchived]);
 
   /*
    * ============================================================
@@ -543,8 +607,107 @@ function AdminComplaintsContent() {
         updateData
       );
 
+      // Keep loaded pages in sync immediately, including older pages
+      // that are fetched with one-time pagination reads.
+      setComplaints((current) =>
+        current.map((item) =>
+          item.id === selectedComplaint.id
+            ? {
+                ...item,
+                status: editStatus,
+                adminNotes: editNotes.trim(),
+                assignedTo: editAssignedTo.trim(),
+              }
+            : item
+        )
+      );
+
+      const admin = auth.currentUser;
+      const statusChanged =
+        selectedComplaint.status !==
+        editStatus;
+      const assignmentChanged =
+        selectedComplaint.assignedTo !==
+        editAssignedTo.trim();
+      const notesChanged =
+        selectedComplaint.adminNotes !==
+        editNotes.trim();
+
+      if (statusChanged || assignmentChanged || notesChanged) {
+        await logActivity({
+          action: statusChanged
+            ? editStatus === "Resolved"
+              ? "COMPLAINT_RESOLVED"
+              : "COMPLAINT_STATUS_UPDATED"
+            : assignmentChanged
+              ? "COMPLAINT_ASSIGNED"
+              : "COMPLAINT_INFORMATION_UPDATED",
+          category: "Complaints",
+          description: statusChanged
+            ? `${admin?.email || "Administrator"} changed complaint status from ${selectedComplaint.status} to ${editStatus}.`
+            : `${admin?.email || "Administrator"} updated a community concern.`,
+          actorType: "admin",
+          actorName: admin?.email || "Administrator",
+          actorId: admin?.uid,
+          referenceId: selectedComplaint.id,
+          referenceType: "complaint",
+          status: editStatus,
+          metadata: {
+            category: selectedComplaint.category,
+            ...(statusChanged
+              ? {
+                  previousStatus: selectedComplaint.status,
+                  newStatus: editStatus,
+                }
+              : {}),
+            ...(assignmentChanged
+              ? { assignedTo: editAssignedTo.trim() }
+              : {}),
+          },
+        });
+      }
+
+      if (statusChanged) {
+        await createAdminNotification({
+          title:
+            editStatus === "Resolved"
+              ? "Complaint Resolved"
+              : "Complaint Status Changed",
+          message: `A community concern status changed from ${selectedComplaint.status} to ${editStatus}.`,
+          type: "complaint",
+          referenceId: selectedComplaint.id,
+          referenceType: "complaint",
+          actionUrl: "/admin/complaints",
+          metadata: {
+            previousStatus: selectedComplaint.status,
+            newStatus: editStatus,
+          },
+        });
+      }
+
+      let emailNotificationFailed = false;
+      if (selectedComplaint.status !== editStatus) {
+        const emailResult = await notifyResidentStatus({
+          recordType: "complaint",
+          title:
+            "Community Concern Status Updated",
+          requestType:
+            "Community Concern",
+          requestId:
+            selectedComplaint.id,
+          oldStatus:
+            selectedComplaint.status,
+          newStatus: editStatus,
+        });
+        if (!emailResult.success) {
+          emailNotificationFailed = true;
+          setSaveError(`Status saved, but the email notification was not sent: ${emailResult.message}`);
+        }
+      }
+
       setSaveMessage(
-        "Changes saved successfully."
+        "Changes saved successfully." +
+          (emailNotificationFailed ? " Email notification could not be sent." : "")
       );
 
       setSelectedComplaint(
@@ -586,31 +749,82 @@ function AdminComplaintsContent() {
     setCategoryFilter("All");
   };
 
-  /*
-   * ============================================================
-   * REFRESH
-   * ============================================================
-   *
-   * onSnapshot already provides real-time updates.
-   * This simply clears filters and lets the listener
-   * display the current records.
-   */
+  const archiveSelectedComplaint = async () => {
+    if (!selectedComplaint) return;
+    if (!window.confirm("Are you sure you want to archive this record?")) return;
 
-  const handleRefresh = () => {
-    setError("");
-    setSearchQuery("");
-    setStatusFilter("All");
-    setCategoryFilter("All");
+    try {
+      await archiveRecord("complaints", selectedComplaint.id);
+      setComplaints((current) =>
+        current.map((item) =>
+          item.id === selectedComplaint.id
+            ? { ...item, archived: true }
+            : item
+        )
+      );
+      await logActivity({
+        action: "COMPLAINT_ARCHIVED",
+        category: "Complaints",
+        description: `${auth.currentUser?.email || "Administrator"} archived complaint ${selectedComplaint.id}.`,
+        actorType: "admin",
+        actorName: auth.currentUser?.email || "Administrator",
+        actorId: auth.currentUser?.uid,
+        referenceId: selectedComplaint.id,
+        referenceType: "complaint",
+        status: selectedComplaint.status,
+      });
+      window.alert("Record archived successfully.");
+      setSelectedComplaint(null);
+    } catch (error) {
+      console.error("Unable to archive complaint:", error);
+      setSaveError("Unable to archive this complaint.");
+    }
+  };
+
+  const restoreSelectedComplaint = async () => {
+    if (!selectedComplaint) return;
+    if (!window.confirm("Restore this record to active complaints?")) return;
+
+    try {
+      await restoreRecord("complaints", selectedComplaint.id);
+      setComplaints((current) =>
+        current.map((item) =>
+          item.id === selectedComplaint.id
+            ? { ...item, archived: false }
+            : item
+        )
+      );
+      await logActivity({
+        action: "COMPLAINT_RESTORED",
+        category: "Complaints",
+        description: `${auth.currentUser?.email || "Administrator"} restored complaint ${selectedComplaint.id}.`,
+        actorType: "admin",
+        actorName: auth.currentUser?.email || "Administrator",
+        actorId: auth.currentUser?.uid,
+        referenceId: selectedComplaint.id,
+        referenceType: "complaint",
+        status: selectedComplaint.status,
+      });
+      window.alert("Record restored successfully.");
+      setSelectedComplaint(null);
+    } catch (error) {
+      console.error("Unable to restore complaint:", error);
+      setSaveError("Unable to restore this complaint.");
+    }
   };
 
   return (
+    <AdminFeatureShell
+      title="Complaints"
+      description="Manage and respond to complaints and community concerns submitted by residents."
+    >
     <div className="min-h-screen bg-slate-50">
 
       {/* ======================================================
           HEADER
       ====================================================== */}
 
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <header className="hidden">
 
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
 
@@ -650,17 +864,6 @@ function AdminComplaintsContent() {
             </div>
 
           </div>
-
-          <button
-            type="button"
-            onClick={handleRefresh}
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-          >
-            <RefreshCw size={16} />
-            <span className="hidden sm:inline">
-              Refresh
-            </span>
-          </button>
 
         </div>
 
@@ -706,6 +909,11 @@ function AdminComplaintsContent() {
         {/* ====================================================
             SUMMARY CARDS
         ==================================================== */}
+
+        <div className="mb-5 flex rounded-xl border border-slate-200 bg-white p-1 sm:w-fit">
+          <button type="button" onClick={() => setShowArchived(false)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Active Complaints</button>
+          <button type="button" onClick={() => setShowArchived(true)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Archived Complaints</button>
+        </div>
 
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
 
@@ -790,6 +998,8 @@ function AdminComplaintsContent() {
         {/* ====================================================
             FILTERS
         ==================================================== */}
+
+        {!showArchived && <BulkArchiveBar visibleCount={activeVisibleComplaints.length} selectedCount={selectedIds.length} allSelected={activeVisibleComplaints.length > 0 && activeVisibleComplaints.every((complaint) => selectedIds.includes(complaint.id))} onSelectAll={selectAll} onArchive={() => void archiveSelected()} />}
 
         <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
 
@@ -916,14 +1126,6 @@ function AdminComplaintsContent() {
 
             </div>
 
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
-            >
-              Reset
-            </button>
-
           </div>
 
           <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
@@ -1030,39 +1232,50 @@ function AdminComplaintsContent() {
 
             <div className="mt-6 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block">
 
-              <div className="overflow-x-auto">
+              <div className="w-full overflow-hidden">
 
-                <table className="w-full min-w-[1200px]">
+                <table className="w-full table-fixed">
+                  <colgroup>
+                    <col className="w-[4%]" />
+                    <col className="w-[21%]" />
+                    <col className="w-[15%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[15%]" />
+                  </colgroup>
 
                   <thead className="border-b border-slate-200 bg-slate-50">
 
                     <tr>
+                      <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400"><span className="sr-only">Select</span></th>
 
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                      <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
                         Concern
                       </th>
 
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                      <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
                         Resident
                       </th>
 
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                      <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
                         Location
                       </th>
 
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                      <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
                         Evidence
                       </th>
 
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                      <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
                         Status
                       </th>
 
-                      <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider text-slate-400">
+                      <th className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide text-slate-400">
                         Submitted
                       </th>
 
-                      <th className="px-6 py-4 text-right text-xs font-bold uppercase tracking-wider text-slate-400">
+                      <th className="px-2 py-3 text-right text-[10px] font-bold uppercase tracking-wide text-slate-400">
                         Action
                       </th>
 
@@ -1078,26 +1291,33 @@ function AdminComplaintsContent() {
                           key={
                             complaint.id
                           }
-                          className="transition hover:bg-slate-50/70"
+                          className="align-top transition hover:bg-slate-50/70"
                         >
+                          <td className="px-2 py-4">{!showArchived && <input type="checkbox" checked={selectedIds.includes(complaint.id)} onChange={(event) => toggleSelected(complaint.id, event.target.checked)} aria-label={`Select complaint ${complaint.id}`} className="h-4 w-4 accent-violet-600" />}</td>
 
-                          <td className="px-6 py-5">
+                          <td className="min-w-0 px-2 py-4">
 
-                            <div className="max-w-xs">
+                            <div className="min-w-0">
 
-                              <p className="font-semibold text-slate-800">
+                              <p className="break-words text-sm font-semibold leading-5 text-slate-800">
                                 {
                                   complaint.category
                                 }
                               </p>
 
-                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                              {complaint.category === "Others" && complaint.customConcern && (
+                                <p className="mt-1 break-words text-xs font-semibold text-violet-700">
+                                  {complaint.customConcern}
+                                </p>
+                              )}
+
+                              <p className="mt-1 break-words text-xs leading-5 text-slate-500">
                                 {
                                   complaint.description
                                 }
                               </p>
 
-                              <p className="mt-2 font-mono text-[10px] text-slate-400">
+                              <p className="mt-2 break-all font-mono text-[10px] leading-4 text-slate-400">
                                 ID:{" "}
                                 {
                                   complaint.id
@@ -1108,7 +1328,7 @@ function AdminComplaintsContent() {
 
                           </td>
 
-                          <td className="px-6 py-5">
+                          <td className="min-w-0 px-2 py-4">
 
                             {complaint.submissionType ===
                             "named" ? (
@@ -1128,10 +1348,10 @@ function AdminComplaintsContent() {
 
                                 </div>
 
-                                {complaint.purokStreet && (
-                                  <p className="mt-1 text-xs text-slate-500">
+                                 {complaint.purok && (
+                                  <p className="mt-1 break-words text-xs text-slate-500">
                                     {
-                                      complaint.purokStreet
+                                       complaint.purok
                                     }
                                   </p>
                                 )}
@@ -1150,16 +1370,16 @@ function AdminComplaintsContent() {
 
                           </td>
 
-                          <td className="px-6 py-5">
+                          <td className="min-w-0 px-2 py-4">
 
-                            <div className="flex max-w-xs items-start gap-2">
+                            <div className="flex min-w-0 items-start gap-1.5">
 
                               <MapPin
                                 size={15}
                                 className="mt-0.5 shrink-0 text-violet-500"
                               />
 
-                              <span className="text-sm text-slate-600">
+                              <span className="break-words text-xs leading-5 text-slate-600">
                                 {
                                   complaint.locationOfConcern ||
                                   "Not provided"
@@ -1174,7 +1394,7 @@ function AdminComplaintsContent() {
                               PHOTO EVIDENCE
                           ==================================== */}
 
-                          <td className="px-6 py-5">
+                          <td className="min-w-0 px-2 py-4">
 
                             {complaint.evidenceUrl ? (
                               <div className="space-y-2">
@@ -1186,7 +1406,7 @@ function AdminComplaintsContent() {
                                       complaint.evidenceUrl
                                     )
                                   }
-                                  className="inline-flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 transition hover:bg-violet-100"
+                                  className="inline-flex max-w-full items-center gap-1.5 whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-2 py-2 text-[11px] font-semibold text-violet-700 transition hover:bg-violet-100"
                                 >
                                   <FileImage
                                     size={15}
@@ -1228,10 +1448,10 @@ function AdminComplaintsContent() {
 
                           </td>
 
-                          <td className="px-6 py-5">
+                          <td className="min-w-0 px-2 py-4">
 
                             <span
-                              className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-bold ${getStatusClasses(
+                              className={`inline-flex max-w-full rounded-full border px-2 py-1 text-[11px] font-bold leading-4 ${getStatusClasses(
                                 complaint.status
                               )}`}
                             >
@@ -1242,9 +1462,9 @@ function AdminComplaintsContent() {
 
                           </td>
 
-                          <td className="px-6 py-5">
+                          <td className="min-w-0 px-2 py-4">
 
-                            <p className="text-xs text-slate-500">
+                            <p className="break-words text-[11px] leading-4 text-slate-500" title={complaint.submittedAt}>
                               {
                                 complaint.submittedAt
                               }
@@ -1252,7 +1472,7 @@ function AdminComplaintsContent() {
 
                           </td>
 
-                          <td className="px-6 py-5 text-right">
+                          <td className="px-2 py-4 text-right">
 
                             <button
                               type="button"
@@ -1261,7 +1481,7 @@ function AdminComplaintsContent() {
                                   complaint
                                 )
                               }
-                              className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-violet-700"
+                              className="inline-flex max-w-full items-center justify-center gap-1 whitespace-nowrap rounded-xl bg-violet-600 px-2 py-2.5 text-[11px] font-bold text-white transition hover:bg-violet-700"
                             >
                               <Eye size={15} />
                               View Details
@@ -1293,6 +1513,7 @@ function AdminComplaintsContent() {
                     key={complaint.id}
                     className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
                   >
+                    {!showArchived && <input type="checkbox" checked={selectedIds.includes(complaint.id)} onChange={(event) => toggleSelected(complaint.id, event.target.checked)} aria-label={`Select complaint ${complaint.id}`} className="m-5 h-4 w-4 accent-violet-600" />}
 
                     <div className="border-b border-slate-100 p-5">
 
@@ -1306,7 +1527,13 @@ function AdminComplaintsContent() {
                             }
                           </p>
 
-                          <h3 className="mt-1 font-bold text-slate-900">
+                          {complaint.category === "Others" && complaint.customConcern && (
+                            <p className="mt-1 break-words text-xs font-semibold text-violet-700">
+                              {complaint.customConcern}
+                            </p>
+                          )}
+
+                          <h3 className="mt-1 break-words font-bold text-slate-900">
                             {
                               complaint.description
                             }
@@ -1326,7 +1553,7 @@ function AdminComplaintsContent() {
 
                       </div>
 
-                      <p className="mt-3 font-mono text-[10px] text-slate-400">
+                      <p className="mt-3 break-all font-mono text-[10px] text-slate-400">
                         ID:{" "}
                         {
                           complaint.id
@@ -1354,10 +1581,10 @@ function AdminComplaintsContent() {
                               }
                             </p>
 
-                            {complaint.purokStreet && (
+                             {complaint.purok && (
                               <p className="text-xs text-slate-500">
                                 {
-                                  complaint.purokStreet
+                                   complaint.purok
                                 }
                               </p>
                             )}
@@ -1385,7 +1612,7 @@ function AdminComplaintsContent() {
                             className="mt-0.5 shrink-0 text-violet-500"
                           />
 
-                          <p className="text-sm text-slate-600">
+                          <p className="break-words text-sm text-slate-600">
                             {
                               complaint.locationOfConcern ||
                               "Not provided"
@@ -1469,6 +1696,22 @@ function AdminComplaintsContent() {
               )}
 
             </div>
+
+            {hasMoreComplaints && (
+              <div className="mt-6 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => void loadMoreComplaints()}
+                  disabled={loadingMoreComplaints}
+                  className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-5 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loadingMoreComplaints && (
+                    <Loader2 size={16} className="animate-spin" />
+                  )}
+                  {loadingMoreComplaints ? "Loading older complaints..." : "Load More Complaints"}
+                </button>
+              </div>
+            )}
           </>
         )}
 
@@ -1560,10 +1803,10 @@ function AdminComplaintsContent() {
 
                           {selectedComplaint.submissionType ===
                             "named" &&
-                            selectedComplaint.purokStreet && (
+                           selectedComplaint.purok && (
                               <p className="mt-1 text-xs text-slate-500">
                                 {
-                                  selectedComplaint.purokStreet
+                                  selectedComplaint.purok
                                 }
                               </p>
                             )}
@@ -1604,6 +1847,12 @@ function AdminComplaintsContent() {
                             selectedComplaint.category
                           }
                         </p>
+
+                        {selectedComplaint.category === "Others" && selectedComplaint.customConcern && (
+                          <p className="mt-2 break-words rounded-xl bg-violet-50 p-3 text-sm font-semibold text-violet-800">
+                            Specific concern: {selectedComplaint.customConcern}
+                          </p>
+                        )}
 
                       </div>
 
@@ -2075,6 +2324,15 @@ function AdminComplaintsContent() {
                 Close
               </button>
 
+              <button
+                type="button"
+                onClick={() => void (selectedComplaint.archived ? restoreSelectedComplaint() : archiveSelectedComplaint())}
+                disabled={saving}
+                className="rounded-xl border border-red-200 bg-white px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+              >
+                {selectedComplaint.archived ? "Restore" : "Archive"}
+              </button>
+
             </div>
 
           </div>
@@ -2124,6 +2382,7 @@ function AdminComplaintsContent() {
       )}
 
     </div>
+    </AdminFeatureShell>
   );
 }
 

@@ -1,0 +1,170 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthorizedAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/adminProfiles/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/adminProfiles/$(request.auth.uid)).data.role == "admin" &&
+        get(/databases/$(database)/documents/adminProfiles/$(request.auth.uid)).data.active != false;
+    }
+
+    function hasResidentVerificationFields() {
+      return request.resource.data.verificationNameVersion == 1 &&
+        request.resource.data.verificationFirstName is string &&
+        request.resource.data.verificationSurname is string &&
+        request.resource.data.verificationNameTokens is list &&
+        request.resource.data.purokNormalized is string;
+    }
+
+    match /documents/{documentId} {
+      allow create: if request.resource.data.documentType in [
+        "Barangay Clearance",
+        "Certificate of Residency",
+        "Barangay Business Clearance",
+        "Community Tax Certificate (Cedula)"
+      ] && request.resource.data.purok in [
+        "Purok Lapu-Lapu",
+        "Purok Quezon",
+        "Purok Bonifacio",
+        "Purok Rizal"
+      ];
+      allow read, update, delete: if isAuthorizedAdmin();
+    }
+
+    match /complaints/{complaintId} {
+      allow create: if request.resource.data.category in [
+          "Peace and Order",
+          "Public Safety",
+          "Environmental Concerns",
+          "Infrastructure and Facilities",
+          "Sanitation and Cleanliness",
+          "Animal-Related Concerns",
+          "Community Concerns",
+          "Public Services",
+          "Property and Land Concerns",
+          "Others"
+        ] &&
+        request.resource.data.description is string &&
+        request.resource.data.description.size() > 0 &&
+        request.resource.data.description.matches(".*\\S.*") &&
+        ((request.resource.data.submissionType == "Anonymous" &&
+        request.resource.data.anonymous == true &&
+        request.resource.data.trackingCode is string) ||
+        request.resource.data.purok in [
+          "Purok Lapu-Lapu",
+          "Purok Quezon",
+          "Purok Bonifacio",
+          "Purok Rizal"
+        ]);
+      allow read, update, delete: if isAuthorizedAdmin();
+    }
+
+    match /assets/{assetId} {
+      allow create: if request.resource.data.purok in [
+        "Purok Lapu-Lapu",
+        "Purok Quezon",
+        "Purok Bonifacio",
+        "Purok Rizal"
+      ];
+      allow read, update, delete: if isAuthorizedAdmin();
+    }
+
+    match /equipmentInventory/{inventoryId} {
+      allow read: if request.auth != null ||
+        resource.data.availableQuantity > 0;
+      allow create, update, delete: if isAuthorizedAdmin();
+    }
+
+    match /notificationTokens/{tokenId} {
+      allow create, update: if
+        request.resource.data.token is string &&
+        request.resource.data.fullName is string &&
+         (request.resource.data.purok is string ||
+          request.resource.data.purokStreet is string);
+
+      allow read: if false;
+      allow delete: if false;
+    }
+
+    match /activityLogs/{activityId} {
+      allow read, create: if request.auth != null;
+      allow update, delete: if request.auth != null;
+    }
+
+    match /notifications/{notificationId} {
+      // Admin notification queries must be scoped to admin notifications.
+      // Admin routes are protected by the existing authenticated admin flow.
+      allow read: if isAuthorizedAdmin() &&
+        resource.data.recipientType == "admin";
+      allow create: if request.auth != null;
+      allow update, delete: if isAuthorizedAdmin() &&
+        resource.data.recipientType == "admin";
+    }
+
+    match /residents/{residentId} {
+      allow read: if isAuthorizedAdmin();
+      allow create: if isAuthorizedAdmin() &&
+        hasResidentVerificationFields() &&
+        request.resource.data.purok in [
+          "Purok Lapu-Lapu",
+          "Purok Quezon",
+          "Purok Bonifacio",
+          "Purok Rizal"
+        ] &&
+        request.resource.data.keys().hasOnly([
+          "fullName",
+          "fullNameNormalized",
+          "purok",
+          "status",
+          "dateAdded",
+          "active",
+          "archived",
+          "createdAt",
+          "updatedAt",
+          "createdBy",
+           "updatedBy",
+           "archivedAt",
+           "archivedBy",
+           "verificationFirstName",
+           "verificationSurname",
+           "verificationNameTokens",
+           "verificationNameVersion",
+           "purokNormalized"
+        ]);
+      allow update: if isAuthorizedAdmin() &&
+        hasResidentVerificationFields() &&
+        (!('purok' in request.resource.data) || request.resource.data.purok in [
+          "Purok Lapu-Lapu",
+          "Purok Quezon",
+          "Purok Bonifacio",
+          "Purok Rizal"
+        ]) &&
+        request.resource.data.keys().hasOnly([
+          "fullName",
+          "fullNameNormalized",
+          "purok",
+          "status",
+          "dateAdded",
+          "active",
+          "archived",
+          "createdAt",
+          "updatedAt",
+          "createdBy",
+           "updatedBy",
+           "archivedAt",
+           "archivedBy",
+           "verificationFirstName",
+           "verificationSurname",
+           "verificationNameTokens",
+           "verificationNameVersion",
+           "purokNormalized"
+        ]);
+      allow delete: if false;
+    }
+
+    match /adminProfiles/{adminId} {
+      allow read, create, update, delete: if false;
+    }
+  }
+}

@@ -7,13 +7,25 @@ export type ComplaintStatus =
 
 export type SubmissionType = "Anonymous" | "Provide My Name";
 
-export type ComplaintCategory = "Community Concern";
+import type { OfficialComplaintCategory } from "@/config/complaintCategories";
+
+export type ComplaintCategory =
+  | OfficialComplaintCategory
+  // Retained so historical local records remain readable.
+  | "Community Concern"
+  | "Damaged Public Facility"
+  | "Road or Drainage Problem"
+  | "Streetlight Problem"
+  | "Public Safety Concern"
+  | "Other";
 
 export interface ComplaintRequest {
   id: string;
   submissionType: SubmissionType;
   fullName?: string;
+  email?: string;
   category: ComplaintCategory;
+  customConcern?: string;
   description: string;
   location: string;
   status: ComplaintStatus;
@@ -25,7 +37,9 @@ export interface ComplaintRequest {
 export interface ComplaintFormData {
   submissionType: SubmissionType;
   fullName: string;
+  email: string;
   category: ComplaintCategory;
+  customConcern?: string;
   description: string;
   location: string;
 }

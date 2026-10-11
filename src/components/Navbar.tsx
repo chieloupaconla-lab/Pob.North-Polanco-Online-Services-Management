@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Building2,
@@ -11,7 +11,6 @@ import {
   ShieldCheck,
   Menu,
   X,
-  Lock,
   Bell,
 } from "lucide-react";
 
@@ -21,6 +20,15 @@ export default function Navbar() {
   const closeMobileMenu = () => {
     setMobileMenuOpen(false);
   };
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMobileMenu();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [mobileMenuOpen]);
 
   return (
     <header className="sticky top-0 z-50 w-full bg-white/95 backdrop-blur-md border-b border-indigo-100 shadow-sm">
@@ -143,19 +151,6 @@ export default function Navbar() {
           </nav>
 
           {/* =====================================================
-              DESKTOP ADMIN
-          ====================================================== */}
-          <div className="hidden shrink-0 items-center lg:flex">
-            <Link
-              href="/admin/login"
-              className="flex items-center gap-1.5 rounded-lg bg-indigo-700 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-indigo-800 hover:shadow"
-            >
-              <Lock className="h-3.5 w-3.5" />
-              Admin Personnel Login
-            </Link>
-          </div>
-
-          {/* =====================================================
               MOBILE ACTIONS
           ====================================================== */}
           <div className="flex shrink-0 items-center gap-1 lg:hidden">
@@ -172,20 +167,6 @@ export default function Navbar() {
                 className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-violet-600 ring-2 ring-white"
                 aria-hidden="true"
               />
-            </Link>
-
-            {/* Admin */}
-            <Link
-              href="/admin/login"
-              aria-label="Admin Login"
-              title="Admin Login"
-              className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700 transition-colors hover:bg-indigo-100 sm:h-10 sm:w-auto sm:px-3"
-            >
-              <Lock className="h-3.5 w-3.5" />
-
-              <span className="ml-1.5 hidden text-xs font-semibold sm:inline">
-                Admin
-              </span>
             </Link>
 
             {/* Menu */}
@@ -214,7 +195,7 @@ export default function Navbar() {
           MOBILE NAVIGATION
       ========================================================== */}
       {mobileMenuOpen && (
-        <div className="border-t border-slate-200 bg-white shadow-lg lg:hidden">
+        <div className="safe-area-bottom border-t border-slate-200 bg-white shadow-lg lg:hidden">
           <nav className="mx-auto w-full max-w-7xl px-3 py-3 sm:px-6">
             <div className="space-y-1.5">
               {/* Home */}
@@ -289,17 +270,6 @@ export default function Navbar() {
                 <span>Emergency Hotlines</span>
               </Link>
 
-              {/* Admin */}
-              <div className="border-t border-slate-100 pt-2">
-                <Link
-                  href="/admin/login"
-                  onClick={closeMobileMenu}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-700 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-indigo-800"
-                >
-                  <Lock className="h-4 w-4" />
-                  Admin Personnel Portal Login
-                </Link>
-              </div>
             </div>
           </nav>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Sidebar, { SidebarNavItemId } from "./Sidebar";
 import TopHeader from "./TopHeader";
 import DashboardFooter from "./DashboardFooter";
@@ -15,6 +15,19 @@ export default function DashboardLayout({
   children,
 }: DashboardLayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileSidebarOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = "";
+    };
+  }, [mobileSidebarOpen]);
 
   return (
     <div className="min-h-screen bg-[#F7F8FC] flex">

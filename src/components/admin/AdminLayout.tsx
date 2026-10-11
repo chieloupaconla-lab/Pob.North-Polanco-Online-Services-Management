@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
-import Link from "next/link";
+import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import AdminSidebar, { AdminSidebarNavItemId } from "./AdminSidebar";
 import AdminHeader from "./AdminHeader";
@@ -17,11 +16,35 @@ export default function AdminLayout({
 }: AdminLayoutProps) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const inferredActiveItem: AdminSidebarNavItemId = pathname.startsWith("/admin/residents")
+    ? "residents"
+    : pathname.startsWith("/admin/documents")
+      ? "documents"
+      : pathname.startsWith("/admin/complaints")
+        ? "complaints"
+        : pathname.startsWith("/admin/assets")
+          ? "assets"
+          : activeItemId;
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileSidebarOpen(false);
+    };
+
+    document.addEventListener("keydown", closeOnEscape);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = "";
+    };
+  }, [mobileSidebarOpen]);
 
   return (
     <div className="min-h-screen bg-[#F7F8FC] flex">
       <AdminSidebar
-        activeItemId={activeItemId}
+        activeItemId={inferredActiveItem}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
       />

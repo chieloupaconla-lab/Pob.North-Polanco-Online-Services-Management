@@ -7,7 +7,7 @@ import RequestDocumentForm from "@/components/dashboard/RequestDocumentForm";
 export const metadata: Metadata = {
   title: "Request Document | Barangay Poblacion North",
   description:
-    "Request barangay documents online including Cedula, Barangay Clearance, Certificate of Residency, and more.",
+    "Request Barangay Clearance, Certificate of Residency, Barangay Business Clearance, and Community Tax Certificate (Cedula) online.",
 };
 
 export default function RequestDocumentPage() {
@@ -17,7 +17,7 @@ export default function RequestDocumentPage() {
         <PageHeading
           breadcrumb="Request Document"
           title="Request a Document"
-          description="Apply for Cedula, Barangay Clearance, Certificate of Residency, and other official barangay documents online."
+          description="Apply for Barangay Clearance, Certificate of Residency, Barangay Business Clearance, and Community Tax Certificate (Cedula) online."
         />
         <RequestDocumentForm />
       </div>

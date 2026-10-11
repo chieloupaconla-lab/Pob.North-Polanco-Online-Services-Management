@@ -19,6 +19,7 @@ export type AssetType =
 export interface AssetBorrowRequest {
   id: string;
   borrowerName: string;
+  email?: string;
   borrowerContact: string;
   borrowerPurok: string;
   asset: AssetType;
@@ -42,6 +43,7 @@ export interface AssetBorrowRequest {
 
 export interface AssetBorrowFormData {
   borrowerName: string;
+  email: string;
   borrowerContact: string;
   borrowerPurok: string;
   asset: AssetType;

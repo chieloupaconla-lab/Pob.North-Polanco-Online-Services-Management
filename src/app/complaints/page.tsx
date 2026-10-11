@@ -7,8 +7,10 @@ import {
   ArrowLeft,
   Bell,
   CheckCircle2,
+  Copy,
   Home,
   Image as ImageIcon,
+  Loader2,
   MapPin,
   Send,
   ShieldCheck,
@@ -23,61 +25,71 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
-import { db, storage } from "@/lib/firebase";
-
+import { db } from "@/lib/firebase";
+import { logActivity } from "@/lib/activityLog";
+import { createAdminNotification } from "@/lib/notifications";
+import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
+import { isOfficialPurok } from "@/lib/purokConfig";
 import {
-  getDownloadURL,
-  ref,
-  uploadBytes,
-} from "firebase/storage";
+  COMPLAINT_CATEGORIES,
+  isOfficialComplaintCategory,
+  type OfficialComplaintCategory,
+} from "@/config/complaintCategories";
 
 type SubmissionType = "Anonymous" | "Provide My Name";
 
 type FormDataType = {
   submissionType: SubmissionType;
   fullName: string;
-  purokStreet: string;
-  category: string;
+  email: string;
+  purok: string;
+  category: OfficialComplaintCategory;
   description: string;
   locationOfConcern: string;
   incidentDate: string;
 };
 
-const categories = [
-  "Community Concern",
-  "Damaged Public Facility",
-  "Road or Drainage Problem",
-  "Streetlight Problem",
-  "Public Safety Concern",
-  "Other",
-];
-
-function generateComplaintTrackingCode() {
-  const characters =
-    "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-  let result = "CN-";
-
-  for (let i = 0; i < 8; i++) {
-    result += characters.charAt(
-      Math.floor(Math.random() * characters.length)
-    );
-  }
-
-  return result;
+function getCategoryDescription(category: OfficialComplaintCategory) {
+  return COMPLAINT_CATEGORIES.find((item) => item.name === category)?.description ?? "";
 }
 
-async function compressImage(file: File): Promise<File> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+async function generateComplaintTrackingCode() {
+  const response = await fetch("/api/complaints/tracking-code", { method: "POST" });
+  const result = (await response.json()) as { trackingCode?: string };
+  if (!response.ok || !result.trackingCode) throw new Error("Unable to create a tracking code. Please try again.");
+  return result.trackingCode;
+}
 
-    reader.onload = (event) => {
+/*
+ * Compress the image before uploading.
+ *
+ * Maximum dimensions:
+ * 800 x 800
+ *
+ * JPEG quality:
+ * 50%
+ *
+ * This greatly reduces the size of photos
+ * taken by phones.
+ */
+async function compressImage(
+  file: File
+): Promise<File> {
+  return new Promise(
+    (resolve, reject) => {
       const image = new Image();
 
+      const objectUrl =
+        URL.createObjectURL(file);
+
       image.onload = () => {
-        const MAX_WIDTH = 1000;
-        const MAX_HEIGHT = 1000;
-        const QUALITY = 0.6;
+        URL.revokeObjectURL(
+          objectUrl
+        );
+
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        const QUALITY = 0.5;
 
         let width = image.width;
         let height = image.height;
@@ -97,12 +109,19 @@ async function compressImage(file: File): Promise<File> {
             heightRatio
           );
 
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
+          width = Math.round(
+            width * ratio
+          );
+
+          height = Math.round(
+            height * ratio
+          );
         }
 
         const canvas =
-          document.createElement("canvas");
+          document.createElement(
+            "canvas"
+          );
 
         canvas.width = width;
         canvas.height = height;
@@ -118,6 +137,20 @@ async function compressImage(file: File): Promise<File> {
           );
           return;
         }
+
+        /*
+         * White background prevents transparent
+         * PNG/WebP images from becoming black
+         * when converted to JPEG.
+         */
+        context.fillStyle = "#ffffff";
+
+        context.fillRect(
+          0,
+          0,
+          width,
+          height
+        );
 
         context.drawImage(
           image,
@@ -135,19 +168,24 @@ async function compressImage(file: File): Promise<File> {
                   "Could not compress the selected image."
                 )
               );
+
               return;
             }
 
-            const compressedFile = new File(
-              [blob],
-              `complaint-${Date.now()}.jpg`,
-              {
-                type: "image/jpeg",
-                lastModified: Date.now(),
-              }
-            );
+            const compressedFile =
+              new File(
+                [blob],
+                `complaint-${Date.now()}.jpg`,
+                {
+                  type: "image/jpeg",
+                  lastModified:
+                    Date.now(),
+                }
+              );
 
-            resolve(compressedFile);
+            resolve(
+              compressedFile
+            );
           },
           "image/jpeg",
           QUALITY
@@ -155,6 +193,10 @@ async function compressImage(file: File): Promise<File> {
       };
 
       image.onerror = () => {
+        URL.revokeObjectURL(
+          objectUrl
+        );
+
         reject(
           new Error(
             "The selected image could not be processed."
@@ -162,31 +204,29 @@ async function compressImage(file: File): Promise<File> {
         );
       };
 
-      image.src =
-        event.target?.result as string;
-    };
-
-    reader.onerror = () => {
-      reject(
-        new Error(
-          "The selected image could not be read."
-        )
-      );
-    };
-
-    reader.readAsDataURL(file);
-  });
+      image.src = objectUrl;
+    }
+  );
 }
 
 export default function ComplaintsPage() {
   const [formData, setFormData] =
     useState<FormDataType>({
-      submissionType: "Provide My Name",
+      submissionType:
+        "Provide My Name",
+
       fullName: "",
-      purokStreet: "",
-      category: "Community Concern",
+
+      email: "",
+
+      purok: "",
+
+      category: "Peace and Order",
+
       description: "",
+
       locationOfConcern: "",
+
       incidentDate: "",
     });
 
@@ -199,17 +239,32 @@ export default function ComplaintsPage() {
   const [uploadingImage, setUploadingImage] =
     useState(false);
 
+  const [compressingImage, setCompressingImage] =
+    useState(false);
+
+  const [uploadProgress, setUploadProgress] =
+    useState(0);
+
   const [errorMessage, setErrorMessage] =
     useState("");
 
   const [submitted, setSubmitted] =
     useState(false);
+  const verificationStatus = useResidentVerification(formData.fullName, formData.purok);
 
-  const [submittedTrackingCode, setSubmittedTrackingCode] =
-    useState("");
+  const [
+    submittedTrackingCode,
+    setSubmittedTrackingCode,
+  ] = useState("");
+  const [trackingCodeCopied, setTrackingCodeCopied] = useState(false);
 
   const [imageSize, setImageSize] =
     useState("");
+
+  const [
+    compressedImageSize,
+    setCompressedImageSize,
+  ] = useState("");
 
   const handleChange = (
     field: keyof FormDataType,
@@ -221,53 +276,395 @@ export default function ComplaintsPage() {
     }));
   };
 
+  const handleCategoryChange = (value: string) => {
+    if (!isOfficialComplaintCategory(value)) return;
+    setFormData((previous) => ({
+      ...previous,
+      category: value,
+    }));
+  };
+
+  /*
+   * Handle selected evidence photo.
+   */
   const handleEvidenceChange = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const file =
-      event.target.files?.[0] || null;
+      event.target.files?.[0] ||
+      null;
 
     setErrorMessage("");
+
     setImageSize("");
+
+    setCompressedImageSize("");
+
+    setUploadProgress(0);
 
     if (!file) {
       setEvidenceFile(null);
       return;
     }
 
-    if (!file.type.startsWith("image/")) {
+    if (
+      !file.type.startsWith(
+        "image/"
+      )
+    ) {
       setErrorMessage(
         "Please select a valid image file."
       );
 
       event.target.value = "";
+
       setEvidenceFile(null);
+
       return;
     }
 
+    /*
+     * Original file limit:
+     * 15 MB
+     */
     const MAX_ORIGINAL_SIZE =
       15 * 1024 * 1024;
 
-    if (file.size > MAX_ORIGINAL_SIZE) {
+    if (
+      file.size >
+      MAX_ORIGINAL_SIZE
+    ) {
       setErrorMessage(
         "The selected image is too large. Please choose an image smaller than 15 MB."
       );
 
       event.target.value = "";
+
       setEvidenceFile(null);
+
       return;
     }
 
     setEvidenceFile(file);
 
     const sizeInMB =
-      file.size / (1024 * 1024);
+      file.size /
+      (1024 * 1024);
 
     setImageSize(
-      `${sizeInMB.toFixed(2)} MB selected`
+      `${sizeInMB.toFixed(
+        2
+      )} MB selected`
     );
   };
 
+  /*
+   * Upload complaint evidence to Cloudinary,
+   * then persist the returned URL in Firestore.
+   */
+  const uploadComplaintEvidence = async (
+    complaintId: string,
+    file: File
+  ) => {
+    try {
+      /*
+       * --------------------------------
+       * STEP 1: COMPRESS
+       * --------------------------------
+       */
+
+      setCompressingImage(true);
+
+      setUploadProgress(0);
+
+      console.log(
+        "Starting image compression..."
+      );
+
+      const compressedFile =
+        await compressImage(file);
+
+      setCompressingImage(false);
+
+      const compressedSizeInKB =
+        compressedFile.size /
+        1024;
+
+      setCompressedImageSize(
+        `${compressedSizeInKB.toFixed(
+          0
+        )} KB after compression`
+      );
+
+      console.log(
+        "Original image size:",
+        `${(
+          file.size /
+          (1024 * 1024)
+        ).toFixed(2)} MB`
+      );
+
+      console.log(
+        "Compressed image size:",
+        `${compressedSizeInKB.toFixed(
+          0
+        )} KB`
+      );
+
+      /*
+       * Maximum compressed image:
+       * 700 KB
+       */
+      const MAX_COMPRESSED_SIZE =
+        700 * 1024;
+
+      if (
+        compressedFile.size >
+        MAX_COMPRESSED_SIZE
+      ) {
+        throw new Error(
+          "The compressed image is still too large. Please choose a smaller photo."
+        );
+      }
+
+      /*
+       * --------------------------------
+       * STEP 2: UPLOAD TO CLOUDINARY
+       * --------------------------------
+       */
+
+      setUploadingImage(true);
+
+      setUploadProgress(0);
+
+      const cloudName =
+        process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+      const uploadPreset =
+        process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+
+      if (!cloudName || !uploadPreset) {
+        throw new Error(
+          "Cloudinary upload is not configured."
+        );
+      }
+
+      const formData = new FormData();
+      formData.append(
+        "file",
+        compressedFile
+      );
+      formData.append(
+        "upload_preset",
+        uploadPreset
+      );
+      formData.append(
+        "folder",
+        "complaint-evidence"
+      );
+      formData.append(
+        "public_id",
+        complaintId
+      );
+
+      const evidenceUrl =
+        await new Promise<string>(
+          (resolve, reject) => {
+            const request = new XMLHttpRequest();
+
+            request.open(
+              "POST",
+              `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`
+            );
+            request.timeout = 60000;
+
+            request.upload.onprogress = (
+              event
+            ) => {
+              if (event.lengthComputable) {
+                setUploadProgress(
+                  Math.round(
+                    (event.loaded /
+                      event.total) *
+                      100
+                  )
+                );
+              }
+            };
+
+            request.onerror = () =>
+              reject(
+                new Error(
+                  "Cloudinary upload failed. Please check your network connection."
+                )
+              );
+
+            request.ontimeout = () =>
+              reject(
+                new Error(
+                  "Cloudinary upload timed out. Please try again."
+                )
+              );
+
+            request.onload = () => {
+              let response: {
+                secure_url?: string;
+                error?: {
+                  message?: string;
+                };
+              } = {};
+
+              try {
+                response = JSON.parse(
+                  request.responseText
+                );
+              } catch {
+                reject(
+                  new Error(
+                    "Cloudinary returned an invalid response."
+                  )
+                );
+                return;
+              }
+
+              if (
+                request.status < 200 ||
+                request.status >= 300 ||
+                !response.secure_url
+              ) {
+                reject(
+                  new Error(
+                    response.error?.message ||
+                      "Cloudinary did not return an image URL."
+                  )
+                );
+                return;
+              }
+
+              setUploadProgress(100);
+              resolve(response.secure_url);
+            };
+
+            request.send(formData);
+          }
+        );
+
+      console.log(
+        "Cloudinary image URL received."
+      );
+
+      /*
+       * --------------------------------
+       * STEP 4: SAVE URL TO FIRESTORE
+       * --------------------------------
+       */
+
+      await updateDoc(
+        doc(
+          db,
+          "complaints",
+          complaintId
+        ),
+        {
+          evidenceUrl,
+
+          evidenceUploadStatus:
+            "Uploaded",
+
+          evidenceFileSize:
+            compressedFile.size,
+
+          updatedAt:
+            serverTimestamp(),
+        }
+      );
+
+      console.log(
+        "Complaint photo successfully saved."
+      );
+
+      return evidenceUrl;
+    } catch (error) {
+      console.error(
+        "Complaint evidence upload failed:",
+        error
+      );
+
+      let errorMessage =
+        "The photo upload failed.";
+
+      if (
+        error &&
+        typeof error ===
+          "object" &&
+        "code" in error
+      ) {
+        const firebaseError =
+          error as {
+            code?: string;
+            message?: string;
+          };
+
+        errorMessage =
+          firebaseError.message ||
+          "The photo upload failed.";
+      }
+
+      /*
+       * If the error is a normal Error,
+       * use its message.
+       */
+      else if (
+        error instanceof Error
+      ) {
+        errorMessage =
+          error.message;
+      }
+
+      /*
+       * Try to update Firestore so the
+       * admin can see that the upload failed.
+       */
+      try {
+        await updateDoc(
+          doc(
+            db,
+            "complaints",
+            complaintId
+          ),
+          {
+            evidenceUploadStatus:
+              "Failed",
+
+            updatedAt:
+              serverTimestamp(),
+          }
+        );
+      } catch (
+        updateError
+      ) {
+        console.error(
+          "Could not update image status:",
+          updateError
+        );
+      }
+
+      throw new Error(
+        errorMessage
+      );
+    } finally {
+      setCompressingImage(
+        false
+      );
+
+      setUploadingImage(
+        false
+      );
+    }
+  };
+
+  /*
+   * Submit complaint.
+   */
   const handleSubmit = async (
     event: FormEvent<HTMLFormElement>
   ) => {
@@ -275,11 +672,15 @@ export default function ComplaintsPage() {
 
     setErrorMessage("");
 
+    setUploadProgress(0);
+
     const cleanName =
       formData.fullName.trim();
 
-    const cleanPurokStreet =
-      formData.purokStreet.trim();
+    const cleanEmail =
+      formData.email.trim().toLowerCase();
+
+    const cleanPurok = formData.purok.trim();
 
     const cleanDescription =
       formData.description.trim();
@@ -287,6 +688,9 @@ export default function ComplaintsPage() {
     const cleanLocation =
       formData.locationOfConcern.trim();
 
+    /*
+    * Validate name and Purok.
+     */
     if (
       formData.submissionType ===
       "Provide My Name"
@@ -295,51 +699,84 @@ export default function ComplaintsPage() {
         setErrorMessage(
           "Please enter your full name."
         );
+
         return;
       }
 
-      if (!cleanPurokStreet) {
+       if (!cleanPurok || !isOfficialPurok(cleanPurok)) {
         setErrorMessage(
-          "Please enter your purok or street."
+           "Please select an official Purok."
         );
+
+        return;
+      }
+
+      if (verificationStatus !== "verified") {
+        setErrorMessage("Please verify your resident information before submitting a named complaint.");
         return;
       }
     }
 
+    
+
+    /*
+     * Validate description.
+     */
     if (!cleanDescription) {
       setErrorMessage(
         "Please describe the concern."
       );
+
       return;
     }
 
+    /*
+     * Validate location.
+     */
     if (!cleanLocation) {
       setErrorMessage(
         "Please enter the location of the concern."
       );
+
       return;
     }
 
     try {
       setSubmitting(true);
 
+      /*
+       * Anonymous complaints get a
+       * private tracking code.
+       */
       const trackingCode =
         formData.submissionType ===
         "Anonymous"
-          ? generateComplaintTrackingCode()
+          ? await generateComplaintTrackingCode()
           : "";
 
       /*
-       * STEP 1:
-       * CREATE THE COMPLAINT
+       * --------------------------------
+       * STEP 1
+       * CREATE COMPLAINT
+       * --------------------------------
        */
+
+      console.log(
+        "Creating complaint..."
+      );
 
       const complaintRef =
         await addDoc(
-          collection(db, "complaints"),
+          collection(
+            db,
+            "complaints"
+          ),
           {
             submissionType:
               formData.submissionType,
+
+            anonymous:
+              formData.submissionType === "Anonymous",
 
             fullName:
               formData.submissionType ===
@@ -347,11 +784,13 @@ export default function ComplaintsPage() {
                 ? ""
                 : cleanName,
 
-            purokStreet:
+            email: cleanEmail,
+
+             purok:
               formData.submissionType ===
               "Anonymous"
                 ? ""
-                : cleanPurokStreet,
+                 : cleanPurok,
 
             category:
               formData.category,
@@ -390,134 +829,141 @@ export default function ComplaintsPage() {
           }
         );
 
+      console.log(
+        "Complaint created:",
+        complaintRef.id
+      );
+
+      const residentLabel =
+        formData.submissionType ===
+        "Anonymous"
+          ? "Anonymous resident"
+          : cleanName;
+
+      await logActivity({
+        action:
+          formData.submissionType === "Anonymous"
+            ? "ANONYMOUS_COMPLAINT_SUBMITTED"
+            : "COMPLAINT_SUBMITTED",
+        category: "Complaints",
+        description:
+          formData.submissionType ===
+          "Anonymous"
+          ? "Anonymous complaint submitted successfully."
+            : `${cleanName} submitted a facility concern about ${formData.category.toLowerCase()}.`,
+        actorType: "resident",
+        actorName:
+          formData.submissionType ===
+          "Anonymous"
+            ? undefined
+            : cleanName,
+        referenceId: complaintRef.id,
+        referenceType: "complaint",
+        status: "Pending",
+        metadata: {
+          submissionType: formData.submissionType,
+          category: formData.category,
+        },
+      });
+
+      await createAdminNotification({
+        title:
+          formData.submissionType === "Anonymous"
+            ? "New Anonymous Facility Concern"
+            : "New Facility Concern",
+        message:
+          formData.submissionType === "Anonymous"
+            ? "An anonymous facility concern was submitted."
+            : `${cleanName} submitted a facility concern about ${formData.category.toLowerCase()}.`,
+        type: "complaint",
+        referenceId: complaintRef.id,
+        referenceType: "complaint",
+        actionUrl: "/admin/complaints",
+        metadata:
+          formData.submissionType === "Anonymous"
+            ? { submissionType: "Anonymous" }
+            : { category: formData.category },
+      });
+
       /*
-       * STEP 2:
-       * UPLOAD PHOTO BEFORE SUCCESS SCREEN
+       * --------------------------------
+       * STEP 2
+       * UPLOAD PHOTO
+       * --------------------------------
        */
 
       if (evidenceFile) {
-        setUploadingImage(true);
+        await uploadComplaintEvidence(
+          complaintRef.id,
+          evidenceFile
+        );
 
-        try {
-          const compressedFile =
-            await compressImage(
-              evidenceFile
-            );
+        await logActivity({
+          action: "COMPLAINT_PROOF_PHOTO_UPLOADED",
+          category: "Complaints",
+          description: `${residentLabel} uploaded proof photo evidence for a complaint.`,
+          actorType: "resident",
+          actorName:
+            formData.submissionType ===
+            "Anonymous"
+              ? undefined
+              : cleanName,
+          referenceId: complaintRef.id,
+          referenceType: "complaint",
+          status: "Uploaded",
+        });
 
-          const MAX_COMPRESSED_SIZE =
-            1 * 1024 * 1024;
-
-          if (
-            compressedFile.size >
-            MAX_COMPRESSED_SIZE
-          ) {
-            throw new Error(
-              "The compressed image is still too large. Please choose a smaller photo."
-            );
-          }
-
-          const storageRef =
-            ref(
-              storage,
-              `complaint-evidence/${complaintRef.id}.jpg`
-            );
-
-          await uploadBytes(
-            storageRef,
-            compressedFile,
-            {
-              contentType: "image/jpeg",
-            }
-          );
-
-          const evidenceUrl =
-            await getDownloadURL(
-              storageRef
-            );
-
-          if (!evidenceUrl) {
-            throw new Error(
-              "Firebase did not return an image URL."
-            );
-          }
-
-          /*
-           * STEP 3:
-           * SAVE PHOTO URL TO FIRESTORE
-           */
-
-          await updateDoc(
-            doc(
-              db,
-              "complaints",
-              complaintRef.id
-            ),
-            {
-              evidenceUrl,
-              evidenceUploadStatus:
-                "Uploaded",
-              updatedAt:
-                serverTimestamp(),
-            }
-          );
-        } catch (imageError) {
-          console.error(
-            "Complaint image upload error:",
-            imageError
-          );
-
-          try {
-            await updateDoc(
-              doc(
-                db,
-                "complaints",
-                complaintRef.id
-              ),
-              {
-                evidenceUploadStatus:
-                  "Failed",
-                updatedAt:
-                  serverTimestamp(),
-              }
-            );
-          } catch (updateError) {
-            console.error(
-              "Could not update image status:",
-              updateError
-            );
-          }
-
-          throw new Error(
-            "Your complaint was created, but the photo could not be uploaded. Please check your photo and try again."
-          );
-        } finally {
-          setUploadingImage(false);
-        }
+        await createAdminNotification({
+          title: "New Proof Photo",
+          message:
+            formData.submissionType === "Anonymous"
+              ? "A proof photo was uploaded for an anonymous facility concern."
+              : "A proof photo was uploaded for a facility concern.",
+          type: "proof",
+          referenceId: complaintRef.id,
+          referenceType: "complaint",
+          actionUrl: "/admin/complaints",
+        });
       }
 
       /*
-       * STEP 4:
-       * SHOW SUCCESS
+       * --------------------------------
+       * STEP 3
+       * SUCCESS
+       * --------------------------------
        */
 
       setSubmittedTrackingCode(
         trackingCode
       );
+      setTrackingCodeCopied(false);
 
       setFormData({
         submissionType:
           "Provide My Name",
+
         fullName: "",
-        purokStreet: "",
-        category:
-          "Community Concern",
+
+        email: "",
+
+        purok: "",
+
+        category: "Peace and Order",
+
         description: "",
+
         locationOfConcern: "",
+
         incidentDate: "",
       });
-
       setEvidenceFile(null);
+
       setImageSize("");
+
+      setCompressedImageSize("");
+
+      setUploadProgress(0);
+
       setSubmitted(true);
     } catch (error) {
       console.error(
@@ -534,9 +980,22 @@ export default function ComplaintsPage() {
       setSubmitted(false);
     } finally {
       setSubmitting(false);
-      setUploadingImage(false);
+
+      setUploadingImage(
+        false
+      );
+
+      setCompressingImage(
+        false
+      );
     }
   };
+
+  /*
+   * --------------------------------
+   * SUCCESS SCREEN
+   * --------------------------------
+   */
 
   if (submitted) {
     return (
@@ -562,14 +1021,13 @@ export default function ComplaintsPage() {
             </p>
 
             <h1 className="mt-2 text-2xl font-bold text-gray-900">
-              Concern Submitted Successfully
+              {submittedTrackingCode ? "Complaint Submitted Successfully" : "Concern Submitted Successfully"}
             </h1>
 
             <p className="mt-3 text-gray-600">
-              Thank you for submitting your
-              community concern. The barangay
-              personnel will review your
-              submission.
+              {submittedTrackingCode
+                ? "Your complaint has been submitted anonymously."
+                : "Thank you for submitting your community concern. The barangay personnel will review your submission."}
             </p>
 
             {submittedTrackingCode && (
@@ -592,6 +1050,32 @@ export default function ComplaintsPage() {
                   You will need it to find your
                   anonymous complaint.
                 </p>
+
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(submittedTrackingCode);
+                        setTrackingCodeCopied(true);
+                      } catch {
+                        setTrackingCodeCopied(false);
+                      }
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-purple-300 bg-white px-4 py-2.5 text-sm font-semibold text-purple-700 hover:bg-purple-100"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy Tracking Code
+                  </button>
+                  <Link
+                    href={`/notifications?trackingCode=${encodeURIComponent(submittedTrackingCode)}`}
+                    className="inline-flex items-center justify-center rounded-xl bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-purple-700"
+                  >
+                    Track My Complaint
+                  </Link>
+                </div>
+
+                {trackingCodeCopied && <p className="mt-2 text-xs font-semibold text-green-700">Tracking code copied.</p>}
 
               </div>
             )}
@@ -671,6 +1155,12 @@ export default function ComplaintsPage() {
     );
   }
 
+  /*
+   * --------------------------------
+   * MAIN FORM
+   * --------------------------------
+   */
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 px-4 py-8">
       <div className="mx-auto max-w-3xl">
@@ -684,6 +1174,8 @@ export default function ComplaintsPage() {
         </Link>
 
         <div className="overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-purple-100">
+
+          {/* HEADER */}
 
           <div className="bg-gradient-to-r from-purple-700 to-indigo-700 px-6 py-8 text-white sm:px-8">
 
@@ -714,6 +1206,8 @@ export default function ComplaintsPage() {
             className="space-y-7 p-6 sm:p-8"
           >
 
+            {/* SUBMISSION TYPE */}
+
             <div>
 
               <h2 className="text-lg font-bold text-gray-900">
@@ -729,6 +1223,7 @@ export default function ComplaintsPage() {
 
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() =>
                     handleChange(
                       "submissionType",
@@ -740,13 +1235,14 @@ export default function ComplaintsPage() {
                     "Provide My Name"
                       ? "border-purple-500 bg-purple-50 ring-2 ring-purple-200"
                       : "border-gray-200 hover:border-purple-300"
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
                 >
                   <div className="flex items-center gap-3">
 
                     <User className="h-5 w-5 text-purple-600" />
 
                     <div>
+
                       <p className="font-semibold text-gray-900">
                         Provide My Name
                       </p>
@@ -755,6 +1251,7 @@ export default function ComplaintsPage() {
                         Your name and location will
                         be recorded.
                       </p>
+
                     </div>
 
                   </div>
@@ -762,6 +1259,7 @@ export default function ComplaintsPage() {
 
                 <button
                   type="button"
+                  disabled={submitting}
                   onClick={() =>
                     handleChange(
                       "submissionType",
@@ -773,13 +1271,14 @@ export default function ComplaintsPage() {
                     "Anonymous"
                       ? "border-purple-500 bg-purple-50 ring-2 ring-purple-200"
                       : "border-gray-200 hover:border-purple-300"
-                  }`}
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
                 >
                   <div className="flex items-center gap-3">
 
                     <ShieldCheck className="h-5 w-5 text-purple-600" />
 
                     <div>
+
                       <p className="font-semibold text-gray-900">
                         Anonymous
                       </p>
@@ -788,6 +1287,7 @@ export default function ComplaintsPage() {
                         Your name and address are
                         not recorded.
                       </p>
+
                     </div>
 
                   </div>
@@ -796,6 +1296,8 @@ export default function ComplaintsPage() {
               </div>
 
             </div>
+
+            {/* NAME + PUROK */}
 
             {formData.submissionType ===
               "Provide My Name" && (
@@ -812,7 +1314,9 @@ export default function ComplaintsPage() {
 
                   <input
                     type="text"
-                    value={formData.fullName}
+                    value={
+                      formData.fullName
+                    }
                     onChange={(event) =>
                       handleChange(
                         "fullName",
@@ -830,31 +1334,24 @@ export default function ComplaintsPage() {
                 <div>
 
                   <label className="mb-2 block text-sm font-semibold text-gray-700">
-                    Purok / Street{" "}
+                    Purok{" "}
                     <span className="text-red-500">
                       *
                     </span>
                   </label>
 
-                  <input
-                    type="text"
-                    value={formData.purokStreet}
-                    onChange={(event) =>
-                      handleChange(
-                        "purokStreet",
-                        event.target.value
-                      )
-                    }
-                    placeholder="Example: Purok 2"
-                    required
-                    disabled={submitting}
-                    className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-gray-50"
-                  />
+                   <ResidentLocationSelect id="complaintPurok" value={formData.purok} onChange={(value) => handleChange("purok", value)} />
 
                 </div>
 
               </div>
             )}
+
+            {formData.submissionType === "Provide My Name" && <ResidentVerificationPanel status={verificationStatus} />}
+
+            
+
+            {/* CATEGORY */}
 
             <div>
 
@@ -863,29 +1360,28 @@ export default function ComplaintsPage() {
               </label>
 
               <select
-                value={formData.category}
-                onChange={(event) =>
-                  handleChange(
-                    "category",
-                    event.target.value
-                  )
+                value={
+                  formData.category
                 }
+                onChange={(event) => handleCategoryChange(event.target.value)}
                 disabled={submitting}
                 className="w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
               >
-                {categories.map(
+                {COMPLAINT_CATEGORIES.map(
                   (category) => (
                     <option
-                      key={category}
-                      value={category}
+                      key={category.name}
+                      value={category.name}
                     >
-                      {category}
+                      {category.name}
                     </option>
                   )
                 )}
               </select>
 
             </div>
+
+            {/* DESCRIPTION */}
 
             <div>
 
@@ -897,7 +1393,9 @@ export default function ComplaintsPage() {
               </label>
 
               <textarea
-                value={formData.description}
+                value={
+                  formData.description
+                }
                 onChange={(event) =>
                   handleChange(
                     "description",
@@ -907,11 +1405,17 @@ export default function ComplaintsPage() {
                 rows={5}
                 required
                 disabled={submitting}
-                placeholder="Describe the concern or problem..."
-                className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+                placeholder={
+                  formData.category === "Others"
+                    ? "Please describe your specific concern..."
+                    : getCategoryDescription(formData.category)
+                }
+                className="w-full resize-none rounded-xl border border-gray-200 px-4 py-3 placeholder:text-gray-400 outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
               />
 
             </div>
+
+            {/* LOCATION */}
 
             <div>
 
@@ -945,6 +1449,8 @@ export default function ComplaintsPage() {
 
             </div>
 
+            {/* INCIDENT DATE */}
+
             <div>
 
               <label className="mb-2 block text-sm font-semibold text-gray-700">
@@ -968,6 +1474,8 @@ export default function ComplaintsPage() {
 
             </div>
 
+            {/* PHOTO */}
+
             <div>
 
               <label className="mb-2 block text-sm font-semibold text-gray-700">
@@ -986,12 +1494,13 @@ export default function ComplaintsPage() {
 
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                      capture="environment"
                       disabled={submitting}
                       onChange={
                         handleEvidenceChange
                       }
-                      className="block w-full text-sm"
+                      className="block w-full cursor-pointer text-sm"
                     />
 
                     <p className="mt-2 text-xs text-gray-500">
@@ -1000,20 +1509,89 @@ export default function ComplaintsPage() {
                     </p>
 
                     <p className="mt-1 text-xs text-purple-600">
-                      Photos are automatically
-                      compressed before uploading.
+                      Photos are automatically resized
+                      and compressed before uploading.
                     </p>
 
                     {imageSize && (
-                      <p className="mt-2 text-xs font-medium text-gray-600">
-                        {imageSize}
-                      </p>
+                      <div className="mt-3 rounded-xl border border-purple-100 bg-white p-3">
+
+                        <div className="flex items-center gap-2">
+
+                          <ImageIcon className="h-4 w-4 text-purple-600" />
+
+                          <p className="text-xs font-semibold text-gray-700">
+                            {imageSize}
+                          </p>
+
+                        </div>
+
+                        {compressedImageSize && (
+                          <p className="mt-1 text-xs font-medium text-green-600">
+                            {compressedImageSize}
+                          </p>
+                        )}
+
+                      </div>
                     )}
 
+                    {/* COMPRESSING */}
+
+                    {compressingImage && (
+                      <div className="mt-3 rounded-xl bg-purple-100 p-3">
+
+                        <div className="flex items-center gap-2 text-xs font-semibold text-purple-700">
+
+                          <Loader2 className="h-4 w-4 animate-spin" />
+
+                          Compressing photo...
+
+                        </div>
+
+                        <p className="mt-1 text-[11px] text-purple-600">
+                          Preparing the photo for a faster upload.
+                        </p>
+
+                      </div>
+                    )}
+
+                    {/* UPLOADING */}
+
                     {uploadingImage && (
-                      <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-purple-700">
-                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-purple-200 border-t-purple-600" />
-                        Uploading photo...
+                      <div className="mt-3 rounded-xl bg-purple-100 p-3">
+
+                        <div className="flex items-center justify-between gap-2">
+
+                          <div className="flex items-center gap-2 text-xs font-semibold text-purple-700">
+
+                            <Loader2 className="h-4 w-4 animate-spin" />
+
+                            Uploading photo...
+
+                          </div>
+
+                          <span className="text-xs font-bold text-purple-700">
+                            {uploadProgress}%
+                          </span>
+
+                        </div>
+
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-purple-200">
+
+                          <div
+                            className="h-full rounded-full bg-purple-600 transition-all duration-300"
+                            style={{
+                              width: `${uploadProgress}%`,
+                            }}
+                          />
+
+                        </div>
+
+                        <p className="mt-2 text-[11px] text-purple-600">
+                          Please keep this page open
+                          until the upload finishes.
+                        </p>
+
                       </div>
                     )}
 
@@ -1024,6 +1602,8 @@ export default function ComplaintsPage() {
               </div>
 
             </div>
+
+            {/* PRIVACY */}
 
             <div className="rounded-2xl bg-gray-50 p-4 text-sm text-gray-600">
 
@@ -1047,7 +1627,7 @@ export default function ComplaintsPage() {
                   <User className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
 
                   <p>
-                    Your name and Purok/Street will
+                     Your name and Purok will
                     help you find this submission
                     later through Notifications.
                   </p>
@@ -1057,28 +1637,43 @@ export default function ComplaintsPage() {
 
             </div>
 
+            {/* ERROR */}
+
             {errorMessage && (
-              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-                {errorMessage}
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700">
+
+                <p className="font-semibold">
+                  Submission Error
+                </p>
+
+                <p className="mt-1">
+                  {errorMessage}
+                </p>
+
               </div>
             )}
 
+            {/* SUBMIT */}
+
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || (formData.submissionType === "Provide My Name" && verificationStatus !== "verified")}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-3.5 font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? (
                 <>
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  <Loader2 className="h-5 w-5 animate-spin" />
 
-                  {uploadingImage
-                    ? "Uploading Photo..."
-                    : "Submitting Concern..."}
+                  {compressingImage
+                    ? "Compressing Photo..."
+                    : uploadingImage
+                      ? `Uploading Photo... ${uploadProgress}%`
+                      : "Submitting Concern..."}
                 </>
               ) : (
                 <>
                   <Send className="h-5 w-5" />
+
                   Submit Community Concern
                 </>
               )}

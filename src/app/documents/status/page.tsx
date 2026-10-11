@@ -21,14 +21,8 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-
-const documentTypes = [
-  "Barangay Clearance",
-  "Barangay Certificate",
-  "Certificate of Residency",
-  "Certificate of Indigency",
-  "Other Barangay Document",
-];
+import { OFFICIAL_PUROKS, getStoredPurok, isOfficialPurok } from "@/lib/purokConfig";
+import { DOCUMENT_TYPES } from "@/config/documentTypes";
 
 const statuses = [
   "Pending",
@@ -40,7 +34,7 @@ const statuses = [
 type RequestData = {
   id: string;
   fullName: string;
-  purokStreet: string;
+  purok: string;
   documentType: string;
   purpose: string;
   status: string;
@@ -52,7 +46,7 @@ type RequestData = {
 
 export default function DocumentStatusPage() {
   const [fullName, setFullName] = useState("");
-  const [purokStreet, setPurokStreet] = useState("");
+  const [purok, setPurok] = useState("");
   const [documentType, setDocumentType] = useState("");
 
   const [request, setRequest] = useState<RequestData | null>(null);
@@ -70,10 +64,15 @@ export default function DocumentStatusPage() {
 
     if (
       !fullName.trim() ||
-      !purokStreet.trim() ||
+      !purok.trim() ||
       !documentType
     ) {
       setErrorMessage("Please complete all required fields.");
+      return;
+    }
+
+    if (!isOfficialPurok(purok.trim())) {
+      setErrorMessage("Please select an official Purok.");
       return;
     }
 
@@ -83,7 +82,6 @@ export default function DocumentStatusPage() {
       const requestsQuery = query(
         collection(db, "documents"),
         where("fullName", "==", fullName.trim()),
-        where("purokStreet", "==", purokStreet.trim()),
         where("documentType", "==", documentType)
       );
 
@@ -97,10 +95,18 @@ export default function DocumentStatusPage() {
         return;
       }
 
-      const requests: RequestData[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Omit<RequestData, "id">),
-      }));
+       const requests: RequestData[] = snapshot.docs
+         .filter((doc) => getStoredPurok(doc.data()) === purok.trim())
+         .map((doc) => ({
+         id: doc.id,
+         ...(doc.data() as Omit<RequestData, "id">),
+         }));
+
+       if (requests.length === 0) {
+         setSearched(true);
+         setErrorMessage("No matching document request was found. Please check the information you entered.");
+         return;
+       }
 
       requests.sort((a, b) => {
         const aTime = a.createdAt?.toMillis?.() ?? 0;
@@ -148,7 +154,7 @@ export default function DocumentStatusPage() {
     setSearched(false);
     setErrorMessage("");
     setFullName("");
-    setPurokStreet("");
+     setPurok("");
     setDocumentType("");
 
     window.scrollTo({
@@ -235,20 +241,21 @@ export default function DocumentStatusPage() {
 
               <div>
                 <label
-                  htmlFor="purokStreet"
+                   htmlFor="purok"
                   className="mb-2 block text-sm font-bold text-slate-800"
                 >
-                  Purok / Street <span className="text-red-500">*</span>
+                   Purok <span className="text-red-500">*</span>
                 </label>
 
-                <input
-                  id="purokStreet"
-                  type="text"
-                  value={purokStreet}
-                  onChange={(e) => setPurokStreet(e.target.value)}
-                  placeholder="Enter the same Purok / Street"
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
-                />
+                 <select
+                   id="purok"
+                   value={purok}
+                   onChange={(e) => setPurok(e.target.value)}
+                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100"
+                 >
+                   <option value="">Select your Purok</option>
+                   {OFFICIAL_PUROKS.map((option) => <option key={option} value={option}>{option}</option>)}
+                 </select>
               </div>
 
               <div>
@@ -267,7 +274,7 @@ export default function DocumentStatusPage() {
                 >
                   <option value="">Select a document</option>
 
-                  {documentTypes.map((document) => (
+                  {DOCUMENT_TYPES.map((document) => (
                     <option key={document} value={document}>
                       {document}
                     </option>
@@ -457,11 +464,11 @@ export default function DocumentStatusPage() {
 
                   <div>
                     <p className="text-xs font-semibold text-slate-400">
-                      Purok / Street
+                       Purok
                     </p>
 
                     <p className="mt-1 text-sm font-semibold text-slate-800">
-                      {request.purokStreet}
+                       {getStoredPurok(request)}
                     </p>
                   </div>
 
@@ -550,7 +557,7 @@ export default function DocumentStatusPage() {
               </h2>
 
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                Please make sure that your name, Purok/Street, and document
+                 Please make sure that your name, Purok, and document
                 type exactly match the information used when you submitted
                 your request.
               </p>

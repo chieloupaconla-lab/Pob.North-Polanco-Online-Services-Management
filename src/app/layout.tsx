@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,9 +13,55 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Barangay Poblacion North | Official Online Services Portal",
+  metadataBase: new URL("https://pob-north-polanco-online-services-management-bb05z9zbs.vercel.app"),
+  title: {
+    default: "Barangay Poblacion North, Polanco, Zamboanga del Norte | Online Services",
+    template: "%s | Barangay Poblacion North",
+  },
   description:
-    "Integrated Web-Based Barangay Services Management System for Barangay Poblacion North, Polanco, Zamboanga del Norte. Online document requests, complaints, and equipment borrowing & returning.",
+    "Official online services portal of Barangay Poblacion North, Polanco, Zamboanga del Norte. Request barangay documents, report public facility concerns, and access barangay services online.",
+  keywords: [
+    "Barangay Poblacion North",
+    "Poblacion North Polanco",
+    "Polanco Zamboanga del Norte",
+    "Barangay services",
+    "Barangay online services",
+    "Barangay documents",
+    "Barangay Clearance",
+    "Certificate of Residency",
+    "Barangay Business Clearance",
+    "Community Tax Certificate (Cedula)",
+  ],
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    url: "/",
+    siteName: "Barangay Poblacion North Online Services",
+    title: "Barangay Poblacion North, Polanco, Zamboanga del Norte | Online Services",
+    description:
+      "Official online services portal for barangay documents, public facility concerns, and barangay-owned equipment borrowing.",
+    locale: "en_PH",
+  },
+  twitter: {
+    card: "summary",
+    title: "Barangay Poblacion North Online Services",
+    description:
+      "Official online services portal of Barangay Poblacion North, Polanco, Zamboanga del Norte.",
+  },
+  robots: { index: true, follow: true },
+  applicationName: "Barangay Poblacion North Online Services",
+  appleWebApp: {
+    capable: true,
+    title: "Barangay Poblacion North",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#4c1d95",
 };
 
 export default function RootLayout({

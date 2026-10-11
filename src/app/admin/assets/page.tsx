@@ -23,7 +23,6 @@ import {
   Package,
   RefreshCw,
   Search,
-  Settings,
   ShieldCheck,
   UserRound,
   Users,
@@ -35,6 +34,19 @@ import { useRouter } from "next/navigation";
 
 import { auth, db } from "@/lib/firebase";
 import AdminAuthGuard from "@/components/AdminAuthGuard";
+import AdminFeatureShell from "@/components/admin/AdminFeatureShell";
+import { getStoredPurok } from "@/lib/purokConfig";
+import { notifyResidentStatus } from "@/lib/notify-resident";
+import { logActivity } from "@/lib/activityLog";
+import { createAdminNotification } from "@/lib/notifications";
+import { formatNameForDisplay } from "@/lib/nameUtils";
+import { archiveRecord, archiveRecords, restoreRecord } from "@/lib/archiveService";
+import BulkArchiveBar from "@/components/admin/BulkArchiveBar";
+import {
+  getEquipmentInventory,
+  releaseEquipmentFromInventory,
+  returnEquipmentToInventory,
+} from "@/lib/inventoryService";
 
 type AssetStatus =
   | "Pending"
@@ -50,8 +62,9 @@ type AssetStatus =
 type AssetRequest = {
   id: string;
   borrowerName: string;
+  email: string;
   borrowerContactNumber: string;
-  purokStreet: string;
+  purok: string;
   assetName: string;
   quantity: number;
   purpose: string;
@@ -72,6 +85,7 @@ type AssetRequest = {
     nanoseconds: number;
   };
   updatedAt?: unknown;
+  archived?: boolean;
 };
 
 const statuses: AssetStatus[] = [
@@ -204,6 +218,8 @@ function AdminAssetsContent() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [assetFilter, setAssetFilter] = useState("All");
+  const [showArchived, setShowArchived] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [selectedRequest, setSelectedRequest] =
     useState<AssetRequest | null>(null);
@@ -230,6 +246,9 @@ function AdminAssetsContent() {
         const data: AssetRequest[] = snapshot.docs.map((item) => ({
           id: item.id,
           ...(item.data() as Omit<AssetRequest, "id">),
+          purok: getStoredPurok(item.data()),
+          borrowerName: formatNameForDisplay(String(item.data().borrowerName || "")),
+          archived: item.data().archived === true,
         }));
 
         data.sort((a, b) => {
@@ -273,7 +292,7 @@ function AdminAssetsContent() {
         request.assetName
           ?.toLowerCase()
           .includes(searchValue) ||
-        request.purokStreet
+        request.purok
           ?.toLowerCase()
           .includes(searchValue) ||
         request.purpose
@@ -288,40 +307,66 @@ function AdminAssetsContent() {
         assetFilter === "All" ||
         request.assetName === assetFilter;
 
+       const matchesArchive = showArchived
+         ? request.archived === true
+         : request.archived !== true;
+
       return (
         matchesSearch &&
         matchesStatus &&
-        matchesAsset
+        matchesAsset &&
+        matchesArchive
       );
     });
-  }, [requests, search, statusFilter, assetFilter]);
+  }, [requests, search, statusFilter, assetFilter, showArchived]);
 
+  const activeVisibleRequests = showArchived ? [] : filteredRequests;
+  const toggleSelected = (id: string, checked: boolean) => setSelectedIds((current) => checked ? [...new Set([...current, id])] : current.filter((item) => item !== id));
+  const selectAll = (checked: boolean) => setSelectedIds(checked ? activeVisibleRequests.map((request) => request.id) : []);
+  const archiveSelected = async () => {
+    if (selectedIds.length === 0 || !window.confirm("Archive selected records?\n\nThese records will be removed from the active list but will remain safely stored and available in the Archive.")) return;
+    const count = selectedIds.length;
+    try {
+      await archiveRecords("assets", selectedIds);
+      const admin = auth.currentUser;
+      await logActivity({ action: "ASSETS_BULK_ARCHIVED", category: "Equipment", description: `${admin?.email || "Administrator"} archived ${count} Asset Borrowing requests.`, actorType: "admin", actorName: admin?.email || "Administrator", actorId: admin?.uid, metadata: { count, recordIds: selectedIds } });
+      setSelectedIds([]);
+      window.alert(`${count} records archived successfully.`);
+    } catch (error) {
+      console.error("Unable to archive selected asset requests:", error);
+      setError("Unable to archive the selected requests.");
+    }
+  };
+
+  const scopedRequests = showArchived
+    ? requests.filter((request) => request.archived === true)
+    : requests.filter((request) => request.archived !== true);
   const summary = {
-    pending: requests.filter(
+    pending: scopedRequests.filter(
       (request) => request.status === "Pending"
     ).length,
 
-    review: requests.filter(
+    review: scopedRequests.filter(
       (request) => request.status === "Under Review"
     ).length,
 
-    approved: requests.filter(
+    approved: scopedRequests.filter(
       (request) => request.status === "Approved"
     ).length,
 
-    released: requests.filter(
+    released: scopedRequests.filter(
       (request) => request.status === "Released"
     ).length,
 
-    returned: requests.filter(
+    returned: scopedRequests.filter(
       (request) => request.status === "Returned"
     ).length,
 
-    overdue: requests.filter(
+    overdue: scopedRequests.filter(
       (request) => request.status === "Overdue"
     ).length,
 
-    issues: requests.filter(
+    issues: scopedRequests.filter(
       (request) =>
         request.status === "Damaged" ||
         request.status === "Lost"
@@ -367,6 +412,49 @@ function AdminAssetsContent() {
     setSaving(true);
 
     try {
+      const startsBorrowing =
+        editStatus === "Released" &&
+        selectedRequest.status !== "Released" &&
+        selectedRequest.status !== "Overdue";
+      const endsBorrowing =
+        ["Returned", "Damaged", "Lost"].includes(editStatus) &&
+        ["Released", "Overdue"].includes(selectedRequest.status);
+
+      if (startsBorrowing || endsBorrowing) {
+        const inventory = await getEquipmentInventory();
+        const inventoryItem = inventory.find(
+          (item) => item.name === selectedRequest.assetName
+        );
+
+        if (!inventoryItem) {
+          throw new Error(
+            `The inventory item "${selectedRequest.assetName}" no longer exists.`
+          );
+        }
+
+        if (startsBorrowing) {
+          await releaseEquipmentFromInventory(
+            inventoryItem.id,
+            selectedRequest.quantity
+          );
+        } else {
+          const condition =
+            editStatus === "Lost"
+              ? "Lost"
+              : editStatus === "Damaged" ||
+                  (editReturnCondition &&
+                    editReturnCondition !== "Good Condition")
+                ? "Damaged"
+                : "Good";
+
+          await returnEquipmentToInventory(
+            inventoryItem.id,
+            selectedRequest.quantity,
+            condition
+          );
+        }
+      }
+
       const requestRef = doc(
         db,
         "assets",
@@ -391,8 +479,116 @@ function AdminAssetsContent() {
           editStatus === "Lost"
             ? new Date().toISOString().split("T")[0]
             : selectedRequest.actualReturnDate || null,
+        });
+
+      const admin = auth.currentUser;
+      const isReturnStatus = [
+        "Returned",
+        "Damaged",
+        "Lost",
+      ].includes(editStatus);
+
+      await logActivity({
+        action:
+          editStatus === "Released"
+            ? "EQUIPMENT_RELEASED"
+            : editStatus === "Returned"
+              ? "EQUIPMENT_RETURNED"
+              : editStatus === "Approved"
+                ? "EQUIPMENT_BORROW_APPROVED"
+                : editStatus === "Rejected"
+                  ? "EQUIPMENT_BORROW_REJECTED"
+              : editStatus === "Damaged"
+                ? "EQUIPMENT_MARKED_DAMAGED"
+                : editStatus === "Lost"
+                  ? "EQUIPMENT_MARKED_LOST"
+                  : editStatus === "Overdue"
+                    ? "EQUIPMENT_MARKED_OVERDUE"
+                  : "EQUIPMENT_STATUS_UPDATED",
+        category: "Equipment",
+        description: `${admin?.email || "Administrator"} changed equipment status from ${selectedRequest.status} to ${editStatus}.`,
+        actorType: "admin",
+        actorName: admin?.email || "Administrator",
+        actorId: admin?.uid,
+        referenceId: selectedRequest.id,
+        referenceType: isReturnStatus
+          ? "return"
+          : "asset",
+        status: editStatus,
+        metadata: {
+          assetName: selectedRequest.assetName,
+          quantity: selectedRequest.quantity,
+          previousStatus: selectedRequest.status,
+          newStatus: editStatus,
+        },
       });
 
+      let emailNotificationFailed = false;
+      if (selectedRequest.status !== editStatus) {
+        const notificationTitle =
+          editStatus === "Returned"
+            ? "Equipment Returned"
+            : editStatus === "Overdue"
+              ? "Equipment Overdue"
+              : editStatus === "Damaged" ||
+                  editStatus === "Lost"
+                ? "Equipment Requires Attention"
+                : "Equipment Status Changed";
+
+        const notificationMessage =
+          editStatus === "Returned"
+            ? `${selectedRequest.borrowerName} returned the borrowed ${selectedRequest.assetName}. Please inspect the equipment.`
+            : editStatus === "Overdue"
+              ? `The borrowed ${selectedRequest.assetName} is overdue for return.`
+              : `${selectedRequest.assetName} status changed from ${selectedRequest.status} to ${editStatus}.`;
+
+        await createAdminNotification({
+          title: notificationTitle,
+          message: notificationMessage,
+          type: "equipment",
+          referenceId: selectedRequest.id,
+          referenceType:
+            editStatus === "Returned"
+              ? "return"
+              : "asset",
+          actionUrl: "/admin/assets",
+          metadata: {
+            previousStatus: selectedRequest.status,
+            newStatus: editStatus,
+          },
+        });
+      }
+
+      if (
+        selectedRequest.status !==
+        editStatus
+      ) {
+        const emailResult = await notifyResidentStatus({
+          recordType: "asset",
+          title:
+            "Equipment Request Status Updated",
+          requestType:
+            editStatus === "Returned" ||
+            editStatus === "Damaged" ||
+            editStatus === "Lost"
+              ? "Equipment Return"
+              : "Equipment Borrowing",
+          requestId: selectedRequest.id,
+          oldStatus: selectedRequest.status,
+          newStatus: editStatus,
+        });
+        if (!emailResult.success) {
+          emailNotificationFailed = true;
+          console.warn("Asset status saved but resident email notification failed.", {
+            requestId: selectedRequest.id,
+            message: emailResult.message,
+          });
+        }
+      }
+
+      if (emailNotificationFailed) {
+        alert("The asset status was saved, but the resident email notification was not sent.");
+      }
       setSelectedRequest(null);
     } catch (error) {
       console.error(error);
@@ -406,14 +602,80 @@ function AdminAssetsContent() {
   };
 
   const handleSignOut = async () => {
+    const admin = auth.currentUser;
+
+    await logActivity({
+      action: "ADMIN_LOGOUT",
+      category: "Admin",
+      description: `${admin?.email || "Administrator"} signed out of the admin portal.`,
+      actorType: "admin",
+      actorName: admin?.email || "Administrator",
+      actorId: admin?.uid,
+      referenceType: "system",
+    });
+
     await signOut(auth);
     router.replace("/admin/login");
   };
 
+  const archiveSelectedRequest = async () => {
+    if (!selectedRequest) return;
+    if (!window.confirm("Are you sure you want to archive this record?")) return;
+
+    try {
+      await archiveRecord("assets", selectedRequest.id);
+      await logActivity({
+        action: "ASSET_ARCHIVED",
+        category: "Equipment",
+        description: `${auth.currentUser?.email || "Administrator"} archived asset borrowing request ${selectedRequest.id}.`,
+        actorType: "admin",
+        actorName: auth.currentUser?.email || "Administrator",
+        actorId: auth.currentUser?.uid,
+        referenceId: selectedRequest.id,
+        referenceType: "asset",
+        status: selectedRequest.status,
+      });
+      window.alert("Record archived successfully.");
+      closeRequest();
+    } catch (error) {
+      console.error("Unable to archive asset request:", error);
+      setError("Unable to archive this request.");
+    }
+  };
+
+  const restoreSelectedRequest = async () => {
+    if (!selectedRequest) return;
+    if (!window.confirm("Restore this record to active borrowing?")) return;
+
+    try {
+      await restoreRecord("assets", selectedRequest.id);
+      await logActivity({
+        action: "ASSET_RESTORED",
+        category: "Equipment",
+        description: `${auth.currentUser?.email || "Administrator"} restored asset borrowing request ${selectedRequest.id}.`,
+        actorType: "admin",
+        actorName: auth.currentUser?.email || "Administrator",
+        actorId: auth.currentUser?.uid,
+        referenceId: selectedRequest.id,
+        referenceType: "asset",
+        status: selectedRequest.status,
+      });
+      window.alert("Record restored successfully.");
+      closeRequest();
+    } catch (error) {
+      console.error("Unable to restore asset request:", error);
+      setError("Unable to restore this request.");
+    }
+  };
+
   return (
+    <AdminFeatureShell
+      title="Asset Borrowing"
+      description="Manage resident equipment borrowing and returning requests."
+    >
     <div className="min-h-screen bg-violet-50">
       {/* Mobile Header */}
-      <div className="sticky top-0 z-30 flex items-center justify-between border-b border-violet-100 bg-white px-4 py-3 lg:hidden">
+      <div className="hidden">
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-violet-600">
             Administration
@@ -435,6 +697,7 @@ function AdminAssetsContent() {
 
       {/* Sidebar */}
       <aside
+        hidden
         className={`fixed inset-y-0 left-0 z-50 w-72 transform border-r border-violet-100 bg-white transition-transform duration-200 lg:translate-x-0 ${
           mobileMenuOpen
             ? "translate-x-0"
@@ -493,7 +756,7 @@ function AdminAssetsContent() {
               className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-violet-50"
             >
               <AlertCircle size={18} />
-              Community Concerns
+              Complaints
             </button>
 
             <button
@@ -501,28 +764,6 @@ function AdminAssetsContent() {
             >
               <Package size={18} />
               Asset Borrowing
-            </button>
-
-            <button
-              className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-400"
-            >
-              <Clock3 size={18} />
-              Notifications
-
-              <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px]">
-                Soon
-              </span>
-            </button>
-
-            <button
-              className="flex w-full cursor-not-allowed items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-400"
-            >
-              <Settings size={18} />
-              Settings
-
-              <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px]">
-                Soon
-              </span>
             </button>
 
             <div className="my-4 border-t border-violet-100" />
@@ -562,9 +803,9 @@ function AdminAssetsContent() {
       )}
 
       {/* Main */}
-      <main className="lg:pl-72">
+      <main>
         {/* Desktop Header */}
-        <header className="hidden border-b border-violet-100 bg-white px-8 py-5 lg:block">
+        <header className="hidden">
           <div>
             <p className="text-sm font-medium text-slate-500">
               Administration
@@ -576,7 +817,11 @@ function AdminAssetsContent() {
           </div>
         </header>
 
-        <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+          <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+          <div className="flex rounded-xl border border-violet-100 bg-white p-1 sm:w-fit">
+            <button type="button" onClick={() => setShowArchived(false)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Active Borrowing</button>
+            <button type="button" onClick={() => setShowArchived(true)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Archived Borrowing</button>
+          </div>
           {/* Summary */}
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <SummaryCard
@@ -623,10 +868,12 @@ function AdminAssetsContent() {
 
             <SummaryCard
               label="Total Requests"
-              count={requests.length}
+               count={scopedRequests.length}
               icon={<Users size={22} />}
             />
           </section>
+
+          {!showArchived && <BulkArchiveBar visibleCount={activeVisibleRequests.length} selectedCount={selectedIds.length} allSelected={activeVisibleRequests.length > 0 && activeVisibleRequests.every((request) => selectedIds.includes(request.id))} onSelectAll={selectAll} onArchive={() => void archiveSelected()} />}
 
           {/* Filters */}
           <section className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm sm:p-5">
@@ -697,7 +944,7 @@ function AdminAssetsContent() {
             <div className="border-b border-violet-100 px-5 py-5">
               <div>
                 <h3 className="font-bold text-slate-900">
-                  Asset Borrowing Requests
+                  {showArchived ? "Archived Borrowing" : "Asset Borrowing Requests"}
                 </h3>
 
                 <p className="mt-1 text-sm text-slate-500">
@@ -731,8 +978,8 @@ function AdminAssetsContent() {
                     className="mx-auto text-slate-300"
                   />
 
-                  <h3 className="mt-4 font-semibold text-slate-800">
-                    No asset requests found
+                   <h3 className="mt-4 font-semibold text-slate-800">
+                     No borrowing requests yet.
                   </h3>
 
                   <p className="mt-1 text-sm text-slate-500">
@@ -748,6 +995,7 @@ function AdminAssetsContent() {
                   <table className="w-full text-left">
                     <thead className="bg-violet-50/70">
                       <tr>
+                        <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-slate-500"><span className="sr-only">Select</span></th>
                         <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Borrower
                         </th>
@@ -777,13 +1025,14 @@ function AdminAssetsContent() {
                             key={request.id}
                             className="transition hover:bg-violet-50/40"
                           >
+                            <td className="px-5 py-4">{!showArchived && <input type="checkbox" checked={selectedIds.includes(request.id)} onChange={(event) => toggleSelected(request.id, event.target.checked)} aria-label={`Select ${request.borrowerName}`} className="h-4 w-4 accent-violet-600" />}</td>
                             <td className="px-5 py-4">
                               <p className="font-semibold text-slate-800">
                                 {request.borrowerName}
                               </p>
 
                               <p className="mt-1 text-xs text-slate-500">
-                                {request.purokStreet}
+                                {request.purok}
                               </p>
                             </td>
 
@@ -850,6 +1099,7 @@ function AdminAssetsContent() {
                         }
                         className="w-full p-5 text-left transition hover:bg-violet-50/50"
                       >
+                        {!showArchived && <input type="checkbox" checked={selectedIds.includes(request.id)} onChange={(event) => toggleSelected(request.id, event.target.checked)} aria-label={`Select ${request.borrowerName}`} className="m-5 h-4 w-4 accent-violet-600" />}
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <p className="font-semibold text-slate-900">
@@ -1019,9 +1269,9 @@ function AdminAssetsContent() {
                     />
 
                     <InfoRow
-                      label="Purok / Street"
+                      label="Purok"
                       value={
-                        selectedRequest.purokStreet
+                        selectedRequest.purok
                       }
                     />
 
@@ -1369,6 +1619,14 @@ function AdminAssetsContent() {
               </button>
 
               <button
+                onClick={() => void (selectedRequest?.archived ? restoreSelectedRequest() : archiveSelectedRequest())}
+                disabled={saving}
+                className="rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+              >
+                {selectedRequest?.archived ? "Restore" : "Archive"}
+              </button>
+
+              <button
                 onClick={saveChanges}
                 disabled={saving}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1393,6 +1651,7 @@ function AdminAssetsContent() {
         </div>
       )}
     </div>
+    </AdminFeatureShell>
   );
 }
 

@@ -33,6 +33,9 @@ import {
 
 import { db } from "@/lib/firebase";
 
+import { OFFICIAL_PUROKS, getStoredPurok, isOfficialPurok } from "@/lib/purokConfig";
+import { compareResidentNames } from "@/lib/residentVerification";
+
 type RequestType =
   | "Document Request"
   | "Complaint"
@@ -49,6 +52,8 @@ type RequestItem = {
   details: string;
   extraDetails?: string;
 };
+
+type LookupMode = "resident" | "anonymous";
 
 const DOCUMENT_STATUSES = [
   "Pending",
@@ -392,10 +397,11 @@ function normalizeRequestType(
 }
 
 export default function NotificationsPage() {
+  const [lookupMode, setLookupMode] = useState<LookupMode>("resident");
   const [fullName, setFullName] =
     useState("");
 
-  const [purokStreet, setPurokStreet] =
+  const [purok, setPurok] =
     useState("");
 
   const [trackingCode, setTrackingCode] =
@@ -422,9 +428,6 @@ export default function NotificationsPage() {
   const fullNameInputRef =
     useRef<HTMLInputElement>(null);
 
-  const purokStreetInputRef =
-    useRef<HTMLInputElement>(null);
-
   /*
    * ============================================================
    * SEARCH RESIDENT REQUESTS
@@ -443,28 +446,81 @@ export default function NotificationsPage() {
     const cleanName =
       cleanResidentValue(fullName);
 
-    const cleanPurokStreet =
-      cleanResidentValue(
-        purokStreet
-      );
+    const cleanPurok = cleanResidentValue(purok);
 
     const cleanTrackingCode =
       trackingCode
         .trim()
         .toUpperCase();
 
+    if (lookupMode === "anonymous") {
+      if (!cleanTrackingCode) {
+        setError("Please enter your anonymous complaint tracking code.");
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await fetch("/api/complaints/track", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trackingCode: cleanTrackingCode }),
+        });
+        const result = (await response.json()) as {
+          found?: boolean;
+             complaint?: {
+               category: string;
+               customConcern?: string;
+               description: string;
+            status: string;
+            createdAt: string | null;
+            updatedAt: string | null;
+          };
+        };
+
+        if (!response.ok || !result.found || !result.complaint) {
+          setError("Unable to find a complaint with that tracking code. Please check the code and try again.");
+          setSearched(true);
+          return;
+        }
+
+        setRequests([{
+          id: "anonymous-complaint",
+          type: "Complaint",
+          title: result.complaint.category,
+          status: result.complaint.status,
+          createdAt: result.complaint.createdAt ? new Date(result.complaint.createdAt) : null,
+          updatedAt: result.complaint.updatedAt ? new Date(result.complaint.updatedAt) : null,
+          details: result.complaint.description,
+            extraDetails: `Anonymous complaint${result.complaint.customConcern ? ` · Specific concern: ${result.complaint.customConcern}` : ""}`,
+        }]);
+        setSearched(true);
+      } catch {
+        setError("Unable to find a complaint with that tracking code. Please check the code and try again.");
+        setSearched(true);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (cleanPurok && !isOfficialPurok(cleanPurok)) {
+      setError("Please select an official Purok.");
+      return;
+    }
+
     /*
      * Resident lookup requires both
-     * Full Name and Purok/Street.
+     * Full Name and Purok.
      */
     if (
       (cleanName &&
-        !cleanPurokStreet) ||
+        !cleanPurok) ||
       (!cleanName &&
-        cleanPurokStreet)
+        cleanPurok)
     ) {
       setError(
-        "Please enter both your Full Name and Purok/Street."
+        "Please enter both your Full Name and Purok."
       );
 
       return;
@@ -473,19 +529,15 @@ export default function NotificationsPage() {
     /*
      * Allow either:
      *
-     * Full Name + Purok/Street
+     * Full Name + Purok
      *
      * OR
      *
      * Anonymous Complaint Tracking Code
      */
-    if (
-      !cleanName &&
-      !cleanPurokStreet &&
-      !cleanTrackingCode
-    ) {
+    if (!cleanName && !cleanPurok) {
       setError(
-        "Please enter your Full Name and Purok/Street, or enter your anonymous complaint tracking code."
+       "Please enter your Full Name and Purok."
       );
 
       return;
@@ -494,6 +546,57 @@ export default function NotificationsPage() {
     setLoading(true);
 
     try {
+      const lookupResponse = await fetch("/api/notifications/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName: cleanName, purok: cleanPurok }),
+      });
+      const lookupResult = await lookupResponse.json() as {
+        status?: "matched" | "ambiguous" | "not_found" | "invalid" | "error";
+        requests?: Array<RequestItem & { createdAt: string | null; updatedAt: string | null }>;
+      };
+
+      if (!lookupResponse.ok || lookupResult.status === "error") {
+        setError("Something went wrong while checking your requests. Please try again.");
+        setSearched(true);
+        return;
+      }
+
+      if (lookupResult.status === "ambiguous") {
+        setError("More than one resident matches that name in the selected Purok. Please enter your complete registered name.");
+        setSearched(true);
+        return;
+      }
+
+      if (lookupResult.status === "not_found") {
+        setError("Unable to find a resident with that name and Purok. Please check your information and try again.");
+        setSearched(true);
+        return;
+      }
+
+      setRequests((lookupResult.requests || []).map((item) => ({
+        ...item,
+        createdAt: item.createdAt ? new Date(item.createdAt) : null,
+        updatedAt: item.updatedAt ? new Date(item.updatedAt) : null,
+      })));
+      setSearched(true);
+      setLoading(false);
+      return;
+
+      /* Legacy client-side request collection lookup is intentionally unreachable.
+       * Resident records and service requests are now filtered server-side. */
+      const verificationResponse = await fetch("/api/residents/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName: cleanName, purok: cleanPurok }),
+      });
+      const verificationResult = (await verificationResponse.json()) as { verified?: boolean };
+      if (!verificationResponse.ok || verificationResult.verified !== true) {
+        setError("Unable to verify your resident information. Please check your full name and Purok and try again.");
+        setSearched(true);
+        return;
+      }
+
       const allRequests: RequestItem[] =
         [];
 
@@ -505,7 +608,7 @@ export default function NotificationsPage() {
 
       if (
         cleanName &&
-        cleanPurokStreet
+        cleanPurok
       ) {
         const documentsQuery =
           query(
@@ -514,15 +617,10 @@ export default function NotificationsPage() {
               "documents"
             ),
             where(
-              "fullName",
+              "purok",
               "==",
-              cleanName
+              cleanPurok
             ),
-            where(
-              "purokStreet",
-              "==",
-              cleanPurokStreet
-            )
           );
 
         const documentsSnapshot =
@@ -534,8 +632,10 @@ export default function NotificationsPage() {
           (
             documentSnapshot
           ) => {
-            const data =
-              documentSnapshot.data();
+             const data =
+               documentSnapshot.data();
+             if (compareResidentNames(cleanName, String(data.fullName || "")).confidence !== "HIGH_CONFIDENCE") return;
+             if (getStoredPurok(data) !== cleanPurok) return;
 
             allRequests.push({
               id:
@@ -567,9 +667,9 @@ export default function NotificationsPage() {
                 "No purpose provided.",
 
               extraDetails:
-                `Purok/Street: ${
-                  data.purokStreet ||
-                  cleanPurokStreet
+                 `Purok: ${
+                   getStoredPurok(data) ||
+                   cleanPurok
                 }`,
             });
           }
@@ -584,7 +684,7 @@ export default function NotificationsPage() {
 
       if (
         cleanName &&
-        cleanPurokStreet
+        cleanPurok
       ) {
         const complaintsQuery =
           query(
@@ -593,15 +693,10 @@ export default function NotificationsPage() {
               "complaints"
             ),
             where(
-              "fullName",
+              "purok",
               "==",
-              cleanName
+              cleanPurok
             ),
-            where(
-              "purokStreet",
-              "==",
-              cleanPurokStreet
-            )
           );
 
         const complaintsSnapshot =
@@ -613,8 +708,10 @@ export default function NotificationsPage() {
           (
             complaintSnapshot
           ) => {
-            const data =
-              complaintSnapshot.data();
+             const data =
+               complaintSnapshot.data();
+             if (compareResidentNames(cleanName, String(data.fullName || "")).confidence !== "HIGH_CONFIDENCE") return;
+             if (getStoredPurok(data) !== cleanPurok) return;
 
             /*
              * Anonymous complaints should not
@@ -657,85 +754,7 @@ export default function NotificationsPage() {
                 "No description provided.",
 
               extraDetails:
-                `Location: ${
-                  data.locationOfConcern ||
-                  "Not provided"
-                }`,
-            });
-          }
-        );
-      }
-
-      /*
-       * ============================================================
-       * 3. ANONYMOUS COMMUNITY CONCERN
-       * ============================================================
-       */
-
-      if (cleanTrackingCode) {
-        const anonymousComplaintQuery =
-          query(
-            collection(
-              db,
-              "complaints"
-            ),
-            where(
-              "trackingCode",
-              "==",
-              cleanTrackingCode
-            )
-          );
-
-        const anonymousSnapshot =
-          await getDocs(
-            anonymousComplaintQuery
-          );
-
-        anonymousSnapshot.forEach(
-          (
-            complaintSnapshot
-          ) => {
-            const data =
-              complaintSnapshot.data();
-
-            if (
-              data.submissionType !==
-              "Anonymous"
-            ) {
-              return;
-            }
-
-            allRequests.push({
-              id:
-                complaintSnapshot.id,
-
-              type:
-                "Complaint",
-
-              title:
-                data.category ||
-                "Anonymous Community Concern",
-
-              status:
-                data.status ||
-                "Pending",
-
-              createdAt:
-                convertTimestamp(
-                  data.createdAt
-                ),
-
-              updatedAt:
-                convertTimestamp(
-                  data.updatedAt
-                ),
-
-              details:
-                data.description ||
-                "No description provided.",
-
-              extraDetails:
-                `Location: ${
+                `${data.category === "Others" && data.customConcern ? `Specific concern: ${data.customConcern} · ` : ""}Location: ${
                   data.locationOfConcern ||
                   "Not provided"
                 }`,
@@ -752,7 +771,7 @@ export default function NotificationsPage() {
 
       if (
         cleanName &&
-        cleanPurokStreet
+        cleanPurok
       ) {
         const assetsQuery =
           query(
@@ -761,15 +780,10 @@ export default function NotificationsPage() {
               "assets"
             ),
             where(
-              "borrowerName",
+              "purok",
               "==",
-              cleanName
+              cleanPurok
             ),
-            where(
-              "purokStreet",
-              "==",
-              cleanPurokStreet
-            )
           );
 
         const assetsSnapshot =
@@ -779,8 +793,10 @@ export default function NotificationsPage() {
 
         assetsSnapshot.forEach(
           (assetSnapshot) => {
-            const data =
-              assetSnapshot.data();
+             const data =
+               assetSnapshot.data();
+             if (compareResidentNames(cleanName, String(data.borrowerName || "")).confidence !== "HIGH_CONFIDENCE") return;
+             if (getStoredPurok(data) !== cleanPurok) return;
 
             const assetName =
               data.assetName ||
@@ -1040,8 +1056,8 @@ export default function NotificationsPage() {
                 "No purpose provided.",
 
               extraDetails:
-                `Purok/Street: ${
-                  data.purokStreet ||
+                 `Purok: ${
+                   getStoredPurok(data) ||
                   "Not provided"
                 }`,
             });
@@ -1410,11 +1426,11 @@ export default function NotificationsPage() {
       requestType ===
         "Complaint"
     ) {
-      loadDirectRequest(
+      void Promise.resolve().then(() => loadDirectRequest(
         requestId,
         requestType,
         urlTrackingCode
-      );
+      ));
 
       return;
     }
@@ -1423,10 +1439,10 @@ export default function NotificationsPage() {
       requestId &&
       requestType
     ) {
-      loadDirectRequest(
+      void Promise.resolve().then(() => loadDirectRequest(
         requestId,
         requestType
-      );
+      ));
 
       return;
     }
@@ -1439,9 +1455,10 @@ export default function NotificationsPage() {
       urlTrackingCode &&
       !requestId
     ) {
-      setTrackingCode(
-        urlTrackingCode
-      );
+      void Promise.resolve().then(() => {
+        setLookupMode("anonymous");
+        setTrackingCode(urlTrackingCode);
+      });
 
       const runAnonymousSearch =
         async () => {
@@ -1451,97 +1468,31 @@ export default function NotificationsPage() {
           setError("");
 
           try {
-            const anonymousComplaintQuery =
-              query(
-                collection(
-                  db,
-                  "complaints"
-                ),
-                where(
-                  "trackingCode",
-                  "==",
-                  urlTrackingCode
-                )
-              );
-
-            const snapshot =
-              await getDocs(
-                anonymousComplaintQuery
-              );
-
-            const foundRequests: RequestItem[] =
-              [];
-
-            snapshot.forEach(
-              (
-                complaintSnapshot
-              ) => {
-                const data =
-                  complaintSnapshot.data();
-
-                if (
-                  data.submissionType !==
-                  "Anonymous"
-                ) {
-                  return;
-                }
-
-                foundRequests.push({
-                  id:
-                    complaintSnapshot.id,
-
-                  type:
-                    "Complaint",
-
-                  title:
-                    data.category ||
-                    "Anonymous Community Concern",
-
-                  status:
-                    data.status ||
-                    "Pending",
-
-                  createdAt:
-                    convertTimestamp(
-                      data.createdAt
-                    ),
-
-                  updatedAt:
-                    convertTimestamp(
-                      data.updatedAt
-                    ),
-
-                  details:
-                    data.description ||
-                    "No description provided.",
-
-                  extraDetails:
-                    `Location: ${
-                      data.locationOfConcern ||
-                      "Not provided"
-                    }`,
-                });
-              }
-            );
-
-            if (
-              foundRequests.length ===
-              0
-            ) {
-              setError(
-                "Request not found. Please check your tracking code."
-              );
+            const response = await fetch("/api/complaints/track", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ trackingCode: urlTrackingCode }),
+            });
+            const result = (await response.json()) as {
+              found?: boolean;
+               complaint?: { category: string; customConcern?: string; description: string; status: string; createdAt: string | null; updatedAt: string | null };
+            };
+            if (!response.ok || !result.found || !result.complaint) {
+              setError("Unable to find a complaint with that tracking code. Please check the code and try again.");
+            } else {
+              setRequests([{
+                id: "anonymous-complaint",
+                type: "Complaint",
+                title: result.complaint.category,
+                status: result.complaint.status,
+                createdAt: result.complaint.createdAt ? new Date(result.complaint.createdAt) : null,
+                updatedAt: result.complaint.updatedAt ? new Date(result.complaint.updatedAt) : null,
+                details: result.complaint.description,
+                 extraDetails: `Anonymous complaint${result.complaint.customConcern ? ` · Specific concern: ${result.complaint.customConcern}` : ""}`,
+              }]);
+              setDirectRequestLoaded(true);
             }
-
-            setRequests(
-              foundRequests
-            );
-
             setSearched(true);
-            setDirectRequestLoaded(
-              foundRequests.length >
-                0
-            );
           } catch (trackingError) {
             console.error(
               "Error loading tracking code request:",
@@ -1642,13 +1593,18 @@ export default function NotificationsPage() {
               Enter the same information you used
               when submitting your request.
             </p>
+
+            <div className="mt-5 grid grid-cols-2 rounded-xl bg-gray-100 p-1">
+              <button type="button" onClick={() => { setLookupMode("resident"); setError(""); setRequests([]); setSearched(false); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${lookupMode === "resident" ? "bg-white text-purple-700 shadow-sm" : "text-gray-500"}`}>Resident Lookup</button>
+              <button type="button" onClick={() => { setLookupMode("anonymous"); setError(""); setRequests([]); setSearched(false); }} className={`rounded-lg px-3 py-2 text-sm font-semibold ${lookupMode === "anonymous" ? "bg-white text-purple-700 shadow-sm" : "text-gray-500"}`}>Anonymous Complaint</button>
+            </div>
           </div>
 
           <form
             onSubmit={handleSearch}
             className="space-y-5"
           >
-            <div className="grid gap-5 sm:grid-cols-2">
+            {lookupMode === "resident" && <div className="grid gap-5 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-semibold text-gray-700">
                   Full Name
@@ -1671,28 +1627,21 @@ export default function NotificationsPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-gray-700">
-                  Purok / Street
+                   Purok
                 </label>
 
-                <input
-                  ref={
-                    purokStreetInputRef
-                  }
-                  type="text"
-                  value={purokStreet}
-                  onChange={(event) =>
-                    setPurokStreet(
-                      event.target.value
-                    )
-                  }
-                  placeholder="Example: Purok 2, Poblacion North"
-                  autoComplete="street-address"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
-                />
+                 <select
+                   value={purok}
+                   onChange={(event) => setPurok(event.target.value)}
+                   className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
+                 >
+                   <option value="">Select your Purok</option>
+                   {OFFICIAL_PUROKS.map((option) => <option key={option} value={option}>{option}</option>)}
+                 </select>
               </div>
-            </div>
+            </div>}
 
-            <div className="relative flex items-center py-2">
+            {lookupMode === "anonymous" && <div className="relative flex items-center py-2">
               <div className="h-px flex-1 bg-gray-200" />
 
               <span className="px-4 text-xs font-medium uppercase tracking-wider text-gray-400">
@@ -1700,9 +1649,9 @@ export default function NotificationsPage() {
               </span>
 
               <div className="h-px flex-1 bg-gray-200" />
-            </div>
+            </div>}
 
-            <div>
+            {lookupMode === "anonymous" && <div>
               <label className="mb-2 block text-sm font-semibold text-gray-700">
                 Anonymous Complaint Tracking Code
               </label>
@@ -1715,7 +1664,7 @@ export default function NotificationsPage() {
                     event.target.value.toUpperCase()
                   )
                 }
-                placeholder="Example: CN-ABC12345"
+                 placeholder="Example: PN-7K4Q9M"
                 className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm uppercase outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100"
               />
 
@@ -1723,7 +1672,7 @@ export default function NotificationsPage() {
                 Use this only if you submitted a
                 complaint anonymously.
               </p>
-            </div>
+            </div>}
 
             {error && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -1742,18 +1691,18 @@ export default function NotificationsPage() {
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Checking Your Requests...
+                  {lookupMode === "anonymous" ? "Tracking Complaint..." : "Checking Your Requests..."}
                 </>
               ) : (
                 <>
                   <Search className="h-4 w-4" />
-                  View My Requests
+                  {lookupMode === "anonymous" ? "Track Complaint" : "View My Requests"}
                 </>
               )}
             </button>
           </form>
 
-          <div className="mt-5 flex gap-3 rounded-xl bg-purple-50 p-4">
+           {lookupMode === "resident" && <div className="mt-5 flex gap-3 rounded-xl bg-purple-50 p-4">
             <Info className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
 
             <p className="text-xs leading-5 text-purple-800">
@@ -1762,19 +1711,9 @@ export default function NotificationsPage() {
               here. You do not need to check each
               service page separately.
             </p>
-          </div>
+           </div>}
 
-          <div className="mt-4 flex gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
-            <Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
-
-            <p className="text-xs leading-5 text-blue-800">
-              Status updates are sent to the email
-              address you provided when submitting
-              your request. If you opened this page
-              from an email notification, your specific
-              request is displayed automatically.
-            </p>
-          </div>
+           
         </section>
 
         {/* Results */}
@@ -1783,7 +1722,7 @@ export default function NotificationsPage() {
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">
-                  My Requests
+                   {lookupMode === "anonymous" ? "Anonymous Complaint" : "My Requests"}
                 </h2>
 
                 <p className="mt-1 text-sm text-gray-500">
@@ -1808,18 +1747,13 @@ export default function NotificationsPage() {
                   No Requests Found
                 </h3>
 
-                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
-                  We could not find any document
-                  requests, complaints, equipment
-                  borrowing, or returning records
-                  using the information you entered.
-                </p>
+                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
+                   {lookupMode === "anonymous"
+                     ? "Unable to find a complaint with that tracking code. Please check the code and try again."
+                     : "We could not find any document requests, complaints, equipment borrowing, or returning records using the information you entered."}
+                 </p>
 
-                <p className="mt-4 text-xs text-gray-400">
-                  Make sure your Full Name and
-                  Purok/Street match the information
-                  submitted with your request.
-                </p>
+                 {lookupMode === "resident" && <p className="mt-4 text-xs text-gray-400">Make sure your Full Name and Purok match the information submitted with your request.</p>}
               </div>
             ) : (
               <div className="space-y-6">

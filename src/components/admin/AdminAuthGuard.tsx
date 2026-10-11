@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { Loader2 } from "lucide-react";
@@ -22,7 +22,20 @@ export default function AdminAuthGuard({
         return;
       }
 
-      setChecking(false);
+      void user.getIdToken().then(async (token) => {
+        const response = await fetch("/api/admin/access", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.ok) {
+          setChecking(false);
+          return;
+        }
+        await signOut(auth);
+        router.replace("/admin/login?error=unauthorized");
+      }).catch(() => {
+        void signOut(auth);
+        router.replace("/admin/login?error=unauthorized");
+      });
     });
 
     return () => unsubscribe();

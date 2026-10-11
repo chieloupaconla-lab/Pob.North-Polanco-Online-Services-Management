@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import {
   ShieldCheck,
@@ -8,7 +9,6 @@ import {
   EyeOff,
   ArrowLeft,
   LockKeyhole,
-  UserPlus,
   Loader2,
 } from "lucide-react";
 import {
@@ -16,8 +16,10 @@ import {
   signOut,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
+import { logActivity } from "@/lib/activityLog";
 
 export default function AdminLoginPage() {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -41,14 +43,43 @@ export default function AdminLoginPage() {
           password
         );
 
+      const accessResponse = await fetch("/api/admin/access", {
+        headers: { Authorization: `Bearer ${await userCredential.user.getIdToken()}` },
+      });
+      if (!accessResponse.ok) {
+        await signOut(auth);
+        const accessResult = await accessResponse.json().catch(() => null) as { code?: string; message?: string } | null;
+        if (accessResponse.status === 403 || accessResult?.code === "ACCOUNT_NOT_AUTHORIZED") {
+          throw new Error("This account is not authorized to access the Admin Portal.");
+        }
+        throw new Error(accessResult?.message || "Admin authorization is temporarily unavailable. Please try again shortly.");
+      }
+
       console.log(
         "Admin signed in:",
         userCredential.user.email
       );
 
-      window.location.href = "/admin";
+      await logActivity({
+        action: "ADMIN_LOGIN",
+        category: "Admin",
+        description: `${userCredential.user.email || "Administrator"} signed in to the admin portal.`,
+        actorType: "admin",
+        actorName:
+          userCredential.user.email ||
+          "Administrator",
+        actorId: userCredential.user.uid,
+        referenceType: "system",
+      });
+
+       router.replace("/admin");
     } catch (error: unknown) {
       console.error("Firebase login error:", error);
+
+      if (error instanceof Error && !("code" in error)) {
+        setErrorMessage(error.message);
+        return;
+      }
 
       if (
         error &&
@@ -254,6 +285,15 @@ export default function AdminLoginPage() {
                       )}
                     </button>
                   </div>
+
+                  <div className="mt-2 text-right">
+                    <Link
+                      href="/admin/forgot-password"
+                      className="text-xs font-semibold text-violet-700 hover:text-violet-900"
+                    >
+                      Forgot Password?
+                    </Link>
+                  </div>
                 </div>
 
                 {/* Sign In */}
@@ -276,19 +316,13 @@ export default function AdminLoginPage() {
                 </button>
               </form>
 
-              {/* Signup */}
-              <div className="mt-6 border-t border-slate-100 pt-5 text-center">
-                <p className="text-sm text-slate-500">
-                  Don't have an admin account?
+              <div className="mt-5 text-center">
+                <p className="text-xs text-slate-400">
+                  Need an admin account?{" "}
+                  <Link href="/admin/signup" className="font-semibold text-violet-700 hover:text-violet-900">
+                    Create Account
+                  </Link>
                 </p>
-
-                <Link
-                  href="/admin/signup"
-                  className="mt-2 inline-flex items-center gap-2 rounded-xl bg-violet-50 px-4 py-2.5 text-sm font-semibold text-violet-700 transition hover:bg-violet-100"
-                >
-                  <UserPlus size={17} />
-                  Create Admin Account
-                </Link>
               </div>
 
               {/* Footer Notice */}

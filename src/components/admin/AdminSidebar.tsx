@@ -2,14 +2,14 @@
 
 import React from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Home,
   FileText,
   AlertTriangle,
   Package,
-  Info,
-  Settings,
-  X,
+  Users,
+  ExternalLink,
 } from "lucide-react";
 
 export type AdminSidebarNavItemId =
@@ -17,8 +17,8 @@ export type AdminSidebarNavItemId =
   | "documents"
   | "complaints"
   | "assets"
-  | "barangay-info"
-  | "settings";
+  | "residents"
+  | "public-portal";
 
 interface AdminSidebarProps {
   activeItemId?: AdminSidebarNavItemId;
@@ -33,6 +33,7 @@ const mainNavItems: {
   icon: React.ElementType;
 }[] = [
   { id: "dashboard", label: "Dashboard", href: "/admin", icon: Home },
+  { id: "residents", label: "Resident Registry", href: "/admin/residents", icon: Users },
   { id: "documents", label: "Document Requests", href: "/admin/documents", icon: FileText },
   { id: "complaints", label: "Complaints", href: "/admin/complaints", icon: AlertTriangle },
   { id: "assets", label: "Asset Borrowing", href: "/admin/assets", icon: Package },
@@ -44,8 +45,7 @@ const secondaryNavItems: {
   href: string;
   icon: React.ElementType;
 }[] = [
-  { id: "barangay-info", label: "Barangay Information", href: "/info", icon: Info },
-  { id: "settings", label: "Settings", href: "/admin", icon: Settings },
+  { id: "public-portal", label: "Public Portal", href: "/", icon: ExternalLink },
 ];
 
 export default function AdminSidebar({
@@ -53,6 +53,8 @@ export default function AdminSidebar({
   mobileOpen = false,
   onCloseMobile,
 }: AdminSidebarProps) {
+  const pathname = usePathname();
+
   const sidebarContent = (
     <div className="flex flex-col h-full bg-white border-r border-slate-200/80 select-none">
       <div className="p-5 border-b border-slate-100 flex items-center gap-3">
@@ -74,12 +76,18 @@ export default function AdminSidebar({
 
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {mainNavItems.map((item) => {
-          const isActive = activeItemId === item.id;
+          const isActive =
+            activeItemId !== "dashboard"
+              ? activeItemId === item.id
+              : item.id === "dashboard"
+                ? pathname === "/admin"
+                : pathname === item.href;
           const Icon = item.icon;
           return (
             <Link
               key={item.id}
               href={item.href}
+              onClick={onCloseMobile}
               className={`group relative flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-sm font-semibold transition-all duration-150 ${
                 isActive
                   ? "bg-[#F0EAFF] text-[#6D3FE7] font-bold"
@@ -109,6 +117,7 @@ export default function AdminSidebar({
               <Link
                 key={item.id}
                 href={item.href}
+                onClick={onCloseMobile}
                 className={`group relative flex items-center gap-3.5 px-3.5 py-3 rounded-xl text-sm font-semibold transition-all duration-150 ${
                   isActive
                     ? "bg-[#F0EAFF] text-[#6D3FE7] font-bold"
@@ -146,7 +155,7 @@ export default function AdminSidebar({
             className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity"
             onClick={onCloseMobile}
           />
-          <div className="relative w-72 max-w-[80vw] h-full shadow-2xl z-10 animate-in slide-in-from-left duration-200">
+          <div className="relative flex h-full w-72 max-w-[85vw] flex-col shadow-2xl z-10 animate-in slide-in-from-left duration-200">
             {sidebarContent}
           </div>
         </div>

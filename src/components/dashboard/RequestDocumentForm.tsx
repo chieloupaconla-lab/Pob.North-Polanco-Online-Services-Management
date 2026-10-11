@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   FileText,
   CheckCircle2,
@@ -9,20 +9,14 @@ import {
   Hash,
   Receipt,
   Home,
-  Wallet,
-  Briefcase,
   Store,
   UserCheck,
   Mail,
 } from "lucide-react";
 
-import {
-  addDoc,
-  collection,
-  serverTimestamp,
-} from "firebase/firestore";
-
-import { db } from "@/lib/firebase";
+import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
+import { isOfficialPurok } from "@/lib/purokConfig";
+import { DOCUMENT_TYPES as APPROVED_DOCUMENT_TYPES } from "@/config/documentTypes";
 
 interface DocumentType {
   id: string;
@@ -35,7 +29,7 @@ interface DocumentType {
 const DOCUMENT_TYPES: DocumentType[] = [
   {
     id: "cedula",
-    name: "Cedula",
+    name: APPROVED_DOCUMENT_TYPES[3],
     description:
       "Community Tax Certificate (CTC) for employment and local transactions.",
     icon: Receipt,
@@ -43,7 +37,7 @@ const DOCUMENT_TYPES: DocumentType[] = [
   },
   {
     id: "barangay-clearance",
-    name: "Barangay Clearance",
+    name: APPROVED_DOCUMENT_TYPES[0],
     description:
       "General clearance for employment, business, or local requirements.",
     icon: FileText,
@@ -51,31 +45,15 @@ const DOCUMENT_TYPES: DocumentType[] = [
   },
   {
     id: "certificate-of-residency",
-    name: "Certificate of Residency",
+    name: APPROVED_DOCUMENT_TYPES[1],
     description:
       "Proof of residency within Barangay Poblacion North.",
     icon: Home,
     accent: "bg-emerald-50 text-[#35B978]",
   },
   {
-    id: "certificate-of-indigency",
-    name: "Certificate of Indigency",
-    description:
-      "Certification for financial or medical assistance requirements.",
-    icon: Wallet,
-    accent: "bg-amber-50 text-[#E5B64A]",
-  },
-  {
-    id: "first-time-jobseeker",
-    name: "First-Time Jobseeker",
-    description:
-      "Certificate under RA 11261 for first-time jobseekers.",
-    icon: Briefcase,
-    accent: "bg-violet-50 text-[#7C3AED]",
-  },
-  {
     id: "business-clearance",
-    name: "Barangay Business Clearance",
+    name: APPROVED_DOCUMENT_TYPES[2],
     description:
       "Clearance required for business permit applications.",
     icon: Store,
@@ -95,6 +73,8 @@ export default function RequestDocumentForm() {
   const [submitted, setSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const submissionIdRef = useRef(crypto.randomUUID().replace(/-/g, ""));
+  const verificationStatus = useResidentVerification(fullName, purok);
 
   const selectedDoc = DOCUMENT_TYPES.find(
     (d) => d.id === selectedId
@@ -145,6 +125,11 @@ export default function RequestDocumentForm() {
       return;
     }
 
+    if (!isOfficialPurok(cleanPurok)) {
+      setErrorMessage("Please select an official Purok.");
+      return;
+    }
+
     if (!cleanPurpose) {
       setErrorMessage(
         "Please state the purpose of your request."
@@ -152,7 +137,12 @@ export default function RequestDocumentForm() {
       return;
     }
 
-    if (!selectedDoc) {
+    if (verificationStatus !== "verified") {
+      setErrorMessage("Please verify your resident information before submitting.");
+      return;
+    }
+
+    if (!selectedDoc || !APPROVED_DOCUMENT_TYPES.includes(selectedDoc.name as (typeof APPROVED_DOCUMENT_TYPES)[number])) {
       setErrorMessage(
         "Please select a document type."
       );
@@ -162,23 +152,22 @@ export default function RequestDocumentForm() {
     try {
       setIsSubmitting(true);
 
-      await addDoc(collection(db, "documents"), {
-        documentType: selectedDoc.name,
-        documentTypeId: selectedDoc.id,
-
-        fullName: cleanFullName,
-        contact: cleanContact,
-        email: cleanEmail,
-        purokStreet: cleanPurok,
-        purpose: cleanPurpose,
-
-        status: "Pending",
-
-        adminNotes: "",
-
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          submissionId: submissionIdRef.current,
+          documentType: selectedDoc.name,
+          documentTypeId: selectedDoc.id,
+          fullName: cleanFullName,
+          contact: cleanContact,
+          email: cleanEmail,
+          purok: cleanPurok,
+          purpose: cleanPurpose,
+        }),
       });
+      const result = await response.json() as { message?: string };
+      if (!response.ok) throw new Error(result.message || "Document request submission failed.");
 
       setSubmitted(true);
     } catch (error) {
@@ -244,6 +233,7 @@ export default function RequestDocumentForm() {
               setPurpose("");
               setSelectedId("cedula");
               setErrorMessage("");
+              submissionIdRef.current = crypto.randomUUID().replace(/-/g, "");
             }}
             className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-[#6D3FE7] hover:bg-[#5B32CC] transition-colors"
           >
@@ -364,14 +354,9 @@ export default function RequestDocumentForm() {
             required
           />
 
-          <Field
-            id="purok"
-            label="Purok / Street (Poblacion North)"
-            value={purok}
-            onChange={setPurok}
-            placeholder="Purok 3, Mabini Street"
-            required
-          />
+           <div className="space-y-1.5"><label htmlFor="purok" className="text-[11px] font-semibold text-[#17213A]">Purok (Poblacion North)</label><ResidentLocationSelect id="purok" value={purok} onChange={setPurok} /></div>
+
+          <ResidentVerificationPanel status={verificationStatus} />
 
           <div className="space-y-1.5">
             <label
@@ -411,14 +396,14 @@ export default function RequestDocumentForm() {
             <strong className="text-[#17213A]">
               {selectedDoc?.name}
             </strong>
-            . Submitting a Purok or street alone is not
+             . Submitting a Purok alone is not
             proof of residency.
           </p>
         </div>
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || verificationStatus !== "verified"}
           className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#6D3FE7] hover:bg-[#5B32CC] disabled:bg-[#A78BFA] disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6D3FE7]/40 focus-visible:ring-offset-2 transition-all"
         >
           <Send className="w-4 h-4" />
@@ -472,4 +457,3 @@ function Field({
     </div>
   );
 }
-
