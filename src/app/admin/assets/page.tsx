@@ -786,7 +786,7 @@ function AdminAssetsContent() {
         </header>
 
           <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
-          <div className="flex rounded-xl border border-violet-100 bg-white p-1 sm:w-fit">
+          <div className="flex w-full flex-wrap rounded-xl border border-violet-100 bg-white p-1 sm:w-fit">
             <button type="button" onClick={() => setShowArchived(false)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Active Borrowing</button>
             <button type="button" onClick={() => setShowArchived(true)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Archived Borrowing</button>
           </div>

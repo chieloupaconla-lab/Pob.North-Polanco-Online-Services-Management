@@ -518,7 +518,7 @@ export default function AdminHeader({
 
     <header className="safe-area-top sticky top-0 z-40 flex min-h-16 items-center justify-between border-b border-gray-200 bg-white px-3 shadow-sm sm:px-6">
 
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
 
         {onToggleMobileSidebar && (
 
@@ -554,7 +554,7 @@ export default function AdminHeader({
 
 
 
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
 
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
 
@@ -588,7 +588,7 @@ export default function AdminHeader({
 
 
 
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1 sm:gap-2">
 
         <div className="relative">
 
@@ -632,7 +632,7 @@ export default function AdminHeader({
 
           {notificationsOpen && (
 
-            <div className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-4 shadow-lg">
+            <div className="absolute right-0 top-12 z-50 max-h-[calc(100dvh-5rem)] w-[min(22rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-lg">
 
               <div className="mb-3 flex items-center justify-between">
 
@@ -776,7 +776,7 @@ export default function AdminHeader({
 
 
 
-         <div ref={profileRef} className="relative flex items-center gap-1 border-l border-gray-200 pl-2 sm:gap-2 sm:pl-3">
+          <div ref={profileRef} className="relative flex min-w-0 items-center gap-1 border-l border-gray-200 pl-2 sm:gap-2 sm:pl-3">
 
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">
 

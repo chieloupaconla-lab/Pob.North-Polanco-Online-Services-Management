@@ -7,8 +7,6 @@ import {
   FileText,
   AlertTriangle,
   Package,
-  PhoneCall,
-  ShieldCheck,
   Menu,
   X,
   Bell,
@@ -248,26 +246,6 @@ export default function Navbar() {
                 <span>Notifications</span>
 
                 <span className="ml-auto h-2 w-2 rounded-full bg-violet-600" />
-              </Link>
-
-              {/* Guidelines */}
-              <Link
-                href="/guidelines"
-                onClick={closeMobileMenu}
-                className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-600" />
-                <span>Guidelines & Policies</span>
-              </Link>
-
-              {/* Emergency Hotlines */}
-              <Link
-                href="/hotlines"
-                onClick={closeMobileMenu}
-                className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
-              >
-                <PhoneCall className="h-5 w-5 shrink-0 text-red-500" />
-                <span>Emergency Hotlines</span>
               </Link>
 
             </div>

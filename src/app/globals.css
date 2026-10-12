@@ -16,7 +16,7 @@ body {
   background-color: #f8fafc;
   color: #0f172a;
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 *,
@@ -43,6 +43,19 @@ input,
 select,
 textarea {
   max-width: 100%;
+}
+
+button,
+a,
+p,
+h1,
+h2,
+h3,
+h4,
+label,
+td,
+th {
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 639px) {

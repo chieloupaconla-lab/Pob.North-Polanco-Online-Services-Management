@@ -47,7 +47,7 @@ export default function RequestDetailModal({
       />
 
       {/* Panel */}
-      <div className="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-slate-200/90 z-10 max-h-[90vh] overflow-y-auto animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+      <div className="relative max-h-[calc(100dvh-1rem)] w-full overflow-y-auto rounded-t-2xl border border-slate-200/90 bg-white shadow-2xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-2xl animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
         {/* Header */}
         <div className="sticky top-0 bg-white/95 backdrop-blur-sm px-5 py-4 border-b border-slate-100 flex items-center justify-between rounded-t-2xl">
           <div className="flex items-center gap-2.5">

@@ -10,6 +10,10 @@ import {
   Package,
   Users,
   ExternalLink,
+  Warehouse,
+  History,
+  Bell,
+  Archive,
 } from "lucide-react";
 
 export type AdminSidebarNavItemId =
@@ -18,6 +22,10 @@ export type AdminSidebarNavItemId =
   | "complaints"
   | "assets"
   | "residents"
+  | "inventory"
+  | "activity-log"
+  | "notifications"
+  | "archive"
   | "public-portal";
 
 interface AdminSidebarProps {
@@ -37,6 +45,10 @@ const mainNavItems: {
   { id: "documents", label: "Document Requests", href: "/admin/documents", icon: FileText },
   { id: "complaints", label: "Complaints", href: "/admin/complaints", icon: AlertTriangle },
   { id: "assets", label: "Asset Borrowing", href: "/admin/assets", icon: Package },
+  { id: "inventory", label: "Equipment Inventory", href: "/admin/inventory", icon: Warehouse },
+  { id: "activity-log", label: "Activity Log", href: "/admin/activity-log", icon: History },
+  { id: "notifications", label: "Notifications", href: "/admin/notifications", icon: Bell },
+  { id: "archive", label: "Archive", href: "/admin/archive", icon: Archive },
 ];
 
 const secondaryNavItems: {
@@ -57,11 +69,11 @@ export default function AdminSidebar({
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-white border-r border-slate-200/80 select-none">
-      <div className="p-5 border-b border-slate-100 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#6D3FE7] to-indigo-800 flex items-center justify-center text-white shrink-0">
+      <div className="flex min-w-0 items-center gap-3 border-b border-slate-100 p-5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#6D3FE7] to-indigo-800 text-white">
           <span className="text-[10px] font-extrabold">BP</span>
         </div>
-        <div>
+        <div className="min-w-0">
           <div className="text-[10px] font-bold tracking-[0.18em] uppercase text-[#6D3FE7]">
             BARANGAY
           </div>

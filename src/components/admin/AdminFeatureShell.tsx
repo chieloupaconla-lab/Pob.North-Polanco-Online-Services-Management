@@ -18,7 +18,7 @@ export default function AdminFeatureShell({
   children,
 }: AdminFeatureShellProps) {
   return (
-    <div className="min-h-screen bg-[#F8F7FC]">
+    <div className="min-h-screen min-w-0 bg-[#F8F7FC]">
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8">
           <Link
@@ -29,9 +29,9 @@ export default function AdminFeatureShell({
             Back to Admin Dashboard
           </Link>
 
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-extrabold text-[#17213A]">{title}</h1>
+          <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-xl font-extrabold text-[#17213A] sm:text-2xl">{title}</h1>
               <p className="mt-1 text-sm text-slate-500">{description}</p>
             </div>
             {actions}
@@ -39,7 +39,7 @@ export default function AdminFeatureShell({
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto min-w-0 max-w-[1600px] px-3 py-5 sm:px-6 sm:py-6 lg:px-8">
         {children}
       </main>
     </div>

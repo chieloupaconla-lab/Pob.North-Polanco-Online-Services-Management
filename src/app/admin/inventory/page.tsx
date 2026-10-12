@@ -364,8 +364,8 @@ export default function EquipmentInventoryPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+            <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+              <div className="flex w-full flex-wrap rounded-xl border border-slate-200 bg-slate-50 p-1 sm:w-auto">
                 <button type="button" onClick={() => setShowArchived(false)} className={`rounded-lg px-3 py-2 text-xs font-semibold ${!showArchived ? "bg-white text-violet-700 shadow-sm" : "text-slate-500"}`}>
                   Active Equipment
                 </button>

@@ -1047,7 +1047,7 @@ actions={
 
 
 
-        <div className="flex rounded-xl border border-slate-200 bg-white p-1 sm:w-fit"><button type="button" onClick={() => { setShowArchived(false); setSelectedIds([]); }} className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Active Residents</button><button type="button" onClick={() => { setShowArchived(true); setSelectedIds([]); }} className={`rounded-lg px-4 py-2 text-sm font-semibold ${showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Archived Residents</button></div>
+        <div className="flex w-full flex-wrap rounded-xl border border-slate-200 bg-white p-1 sm:w-fit"><button type="button" onClick={() => { setShowArchived(false); setSelectedIds([]); }} className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Active Residents</button><button type="button" onClick={() => { setShowArchived(true); setSelectedIds([]); }} className={`rounded-lg px-4 py-2 text-sm font-semibold ${showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Archived Residents</button></div>
 
          <div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search residents or document ID..." className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm" /></div>
 

@@ -1259,7 +1259,7 @@ try {
 
               {/* Summary */}
 
-              <div className="mb-5 flex rounded-xl border border-slate-200 bg-white p-1 sm:w-fit">
+              <div className="mb-5 flex w-full flex-wrap rounded-xl border border-slate-200 bg-white p-1 sm:w-fit">
 
                 <button type="button" onClick={() => setShowArchived(false)} className={`rounded-lg px-4 py-2 text-sm font-semibold ${!showArchived ? "bg-violet-50 text-violet-700" : "text-slate-500"}`}>Active Requests</button>
 

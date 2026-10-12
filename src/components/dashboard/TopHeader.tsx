@@ -26,18 +26,18 @@ export default function TopHeader({
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-2xs transition-all">
       <div className="safe-area-top mx-auto max-w-7xl px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 sm:h-20">
+        <div className="flex min-w-0 items-center justify-between gap-2 h-16 sm:h-20">
           {/* Barangay Branding */}
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <BarangaySealLogo size={40} />
 
-            <div>
+            <div className="min-w-0">
               <div className="text-[9px] font-bold tracking-[0.18em] uppercase text-[#6D3FE7]">
                 BARANGAY
               </div>
 
               <div className="text-xs font-extrabold text-[#17213A] tracking-tight leading-tight">
-                POBLACION NORTH
+                <span className="block truncate">POBLACION NORTH</span>
               </div>
 
               <div className="text-[9px] font-semibold text-[#6B7280] tracking-[0.2em] uppercase">
@@ -47,7 +47,7 @@ export default function TopHeader({
           </div>
 
           {/* Header Actions */}
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-3">
             {/* Notification Bell */}
             <button
               onClick={handleNotificationClick}

@@ -78,7 +78,7 @@ export default function Home() {
       </section>
 
       {/* RESIDENCY NOTICE BANNER */}
-      <section className="border-y border-amber-200/90 bg-amber-50 py-3.5 sm:py-4">
+      <section className="mt-4 border-y border-amber-200/90 bg-amber-50 py-3.5 sm:py-4 lg:mt-10">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex items-start gap-3.5 text-amber-950 md:items-center">
             <div className="shrink-0 rounded-xl bg-amber-100 p-2.5 text-amber-900">

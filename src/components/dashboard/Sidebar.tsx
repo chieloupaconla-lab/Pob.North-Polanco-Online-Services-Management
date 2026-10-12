@@ -49,7 +49,7 @@ export default function Sidebar({
 
   return (
     <>
-      <aside className="hidden lg:block w-64 shrink-0 h-screen sticky top-0 z-20">
+      <aside className="hidden h-screen w-64 shrink-0 sticky top-0 z-20 lg:block">
         <div className="flex flex-col h-full bg-white border-r border-slate-200/80 select-none">
           
           <div className="p-5 border-b border-slate-100 flex items-center gap-3">
