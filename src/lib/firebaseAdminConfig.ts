@@ -61,12 +61,13 @@ export function normalizePrivateKey(value: string): string {
 export function getPrivateKeyDiagnostics(rawValue: string): {
   present: boolean;
   rawLength: number;
+  normalizedLength: number;
+  rawStartsWithPemHeader: boolean;
+  rawEndsWithPemFooter: boolean;
   containsLiteralEscapedNewline: boolean;
   containsActualNewline: boolean;
   normalizedStartsWithPemHeader: boolean;
   normalizedEndsWithPemFooter: boolean;
-  normalizedContainsActualNewline: boolean;
-  plausibleLength: boolean;
 } {
   let normalized = "";
 
@@ -87,11 +88,12 @@ export function getPrivateKeyDiagnostics(rawValue: string): {
   return {
     present: rawValue.length > 0,
     rawLength: rawValue.length,
+    normalizedLength: normalized.length,
+    rawStartsWithPemHeader: rawValue.trim().startsWith(PEM_HEADER),
+    rawEndsWithPemFooter: rawValue.trim().endsWith(PEM_FOOTER),
     containsLiteralEscapedNewline: rawValue.includes("\\n"),
     containsActualNewline: /\r|\n/.test(rawValue),
     normalizedStartsWithPemHeader: normalized.startsWith(PEM_HEADER),
     normalizedEndsWithPemFooter: normalized.endsWith(PEM_FOOTER),
-    normalizedContainsActualNewline: normalized.includes("\n"),
-    plausibleLength: normalized.length >= MIN_PLAUSIBLE_PRIVATE_KEY_LENGTH,
   };
 }

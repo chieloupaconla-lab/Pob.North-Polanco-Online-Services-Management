@@ -50,11 +50,29 @@ function configureFirebaseEmulators(): void {
 }
 
 
-function logPrivateKeyDiagnostics(rawValue: string): void {
-  if (process.env.NODE_ENV !== "development") return;
+function logPrivateKeyDiagnostics(rawValue: string, error: unknown): void {
+  const errorValue = error as { code?: unknown };
+  const safeError =
+    error instanceof Error && error.name === "FirebaseAdminPrivateKeyError"
+      ? {
+          normalizationThrew: true,
+          normalizationErrorCode:
+            typeof errorValue.code === "string"
+              ? errorValue.code
+              : "firebase-admin-private-key-malformed",
+          normalizationErrorMessage: error.message,
+        }
+      : {
+          normalizationThrew: true,
+          normalizationErrorCode: "firebase-admin-normalization-error",
+          normalizationErrorMessage: "Private-key normalization failed.",
+        };
 
-  // Do not log the private key itself.
-  console.info("Firebase Admin private key diagnostics.", getPrivateKeyDiagnostics(rawValue));
+  // This is emitted only for initialization failures and never includes key data.
+  console.error("Firebase Admin private-key normalization failed.", {
+    ...getPrivateKeyDiagnostics(rawValue),
+    ...safeError,
+  });
 }
 
 function firebaseAdminConfigPresent(): boolean {
@@ -100,9 +118,8 @@ function getOrInitializeFirebaseAdminApp(): App {
 
   try {
     normalizedPrivateKey = normalizePrivateKey(privateKey);
-    logPrivateKeyDiagnostics(privateKey);
   } catch (error) {
-    logPrivateKeyDiagnostics(privateKey);
+    logPrivateKeyDiagnostics(privateKey, error);
     throw error;
   }
 

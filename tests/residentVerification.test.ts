@@ -9,7 +9,10 @@ import {
 } from "@/lib/residentVerification";
 import { getFirebaseFailureDetails, isFirebaseServiceUnavailable } from "@/lib/firebaseErrors";
 import { isTrustedAdminProfile } from "@/lib/adminAuthorization";
-import { normalizePrivateKey } from "@/lib/firebaseAdminConfig";
+import {
+  getPrivateKeyDiagnostics,
+  normalizePrivateKey,
+} from "@/lib/firebaseAdminConfig";
 
 const TEST_KEY_BODY = "A".repeat(160);
 const TEST_KEY = `-----BEGIN PRIVATE KEY-----\n${TEST_KEY_BODY}\n-----END PRIVATE KEY-----`;
@@ -21,6 +24,19 @@ test("normalizes PEM keys with actual newlines and CRLF line endings", () => {
 test("normalizes PEM keys with escaped newlines and surrounding quotes", () => {
   const escaped = `  "${TEST_KEY.replace(/\n/g, "\\n")}  "  `;
   assert.equal(normalizePrivateKey(escaped), TEST_KEY);
+});
+
+test("reports private-key shape without exposing its value", () => {
+  const diagnostics = getPrivateKeyDiagnostics(TEST_KEY);
+  assert.equal(diagnostics.present, true);
+  assert.equal(diagnostics.rawLength, TEST_KEY.length);
+  assert.equal(diagnostics.normalizedLength, TEST_KEY.length);
+  assert.equal(diagnostics.rawStartsWithPemHeader, true);
+  assert.equal(diagnostics.rawEndsWithPemFooter, true);
+  assert.equal(diagnostics.normalizedStartsWithPemHeader, true);
+  assert.equal(diagnostics.normalizedEndsWithPemFooter, true);
+  assert.equal(diagnostics.containsLiteralEscapedNewline, false);
+  assert.equal(diagnostics.containsActualNewline, true);
 });
 
 test("rejects malformed, incomplete, and truncated PEM values", () => {
