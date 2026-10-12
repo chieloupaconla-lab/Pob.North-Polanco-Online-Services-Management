@@ -55,11 +55,11 @@ export default function Home() {
       <Navbar />
 
       {/* HERO SECTION */}
-      <section className="relative overflow-hidden border-b border-indigo-800 bg-gradient-to-br from-indigo-950 via-indigo-900 to-violet-950 py-14 text-white sm:py-16 lg:py-20">
+      <section className="relative overflow-hidden border-b border-indigo-800 bg-gradient-to-br from-indigo-950 via-indigo-900 to-violet-950 py-10 text-white sm:py-12 lg:py-14">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:32px_32px]"></div>
         
-        <div className="relative mx-auto flex min-h-[330px] max-w-7xl items-center px-4 sm:px-6 lg:min-h-[400px] lg:px-8">
-          <div className="max-w-3xl space-y-5 text-left sm:space-y-6">
+        <div className="relative mx-auto flex min-h-[300px] max-w-7xl items-center px-4 sm:px-6 lg:min-h-[350px] lg:px-8">
+          <div className="max-w-3xl space-y-4 text-left sm:space-y-5">
             <div className="inline-flex items-center gap-2 bg-indigo-800/80 border border-indigo-700 px-3.5 py-1.5 rounded-full text-xs font-semibold text-indigo-200">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               Integrated Public Services Portal
@@ -78,7 +78,7 @@ export default function Home() {
       </section>
 
       {/* RESIDENCY NOTICE BANNER */}
-      <section className="border-y border-amber-200/90 bg-amber-50 py-4 sm:py-5">
+      <section className="border-y border-amber-200/90 bg-amber-50 py-3.5 sm:py-4">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex items-start gap-3.5 text-amber-950 md:items-center">
             <div className="shrink-0 rounded-xl bg-amber-100 p-2.5 text-amber-900">
@@ -102,8 +102,8 @@ export default function Home() {
       </section>
 
       {/* SERVICE CARDS SECTION */}
-      <section id="services" className="mx-auto max-w-7xl scroll-mt-20 px-4 py-10 sm:px-6 sm:py-12 lg:px-8 lg:py-14">
-        <div className="mx-auto mb-8 max-w-2xl space-y-2 text-center sm:mb-10">
+      <section id="services" className="mx-auto max-w-7xl scroll-mt-20 px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-12">
+        <div className="mx-auto mb-6 max-w-2xl space-y-2 text-center sm:mb-8">
           <div className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full uppercase tracking-wider">
             Barangay Services
           </div>
@@ -120,7 +120,7 @@ export default function Home() {
           
           {/* Card 1: Request a Document */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-indigo-300 hover:shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden group">
-             <div className="space-y-4 p-5 sm:p-6">
+            <div className="space-y-4 p-5 sm:p-6">
               <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                 <FileText className="w-6 h-6" />
               </div>
@@ -137,14 +137,14 @@ export default function Home() {
                 <div>• Purpose & Valid Proof Details</div>
               </div>
             </div>
-             <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
+            <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
               
             </div>
           </div>
 
           {/* Card 2: Report a Facility Problem */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-violet-300 hover:shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden group">
-             <div className="space-y-4 p-5 sm:p-6">
+            <div className="space-y-4 p-5 sm:p-6">
               <div className="w-12 h-12 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center group-hover:bg-violet-600 group-hover:text-white transition-colors">
                 <AlertTriangle className="w-6 h-6" />
               </div>
@@ -161,14 +161,14 @@ export default function Home() {
                 <div>• Contact Info & Optional Photo</div>
               </div>
             </div>
-             <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
+            <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
              
             </div>
           </div>
 
           {/* Card 3: Borrow Equipment */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300 hover:shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden group">
-             <div className="space-y-4 p-5 sm:p-6">
+            <div className="space-y-4 p-5 sm:p-6">
               <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
                 <Package className="w-6 h-6" />
               </div>
@@ -185,14 +185,14 @@ export default function Home() {
                 <div>• Agreement to Penalty Policies</div>
               </div>
             </div>
-             <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
+            <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
               
             </div>
           </div>
 
           {/* Card 4: Check Request Status */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-amber-300 hover:shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden group">
-             <div className="space-y-4 p-5 sm:p-6">
+            <div className="space-y-4 p-5 sm:p-6">
               <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
                 <ClockCheck className="w-6 h-6" />
               </div>
@@ -208,7 +208,7 @@ export default function Home() {
                 <div>• In-Person Validation at Barangay Hall</div>
               </div>
             </div>
-             <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
+            <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
              
             </div>
           </div>

@@ -36,8 +36,8 @@ export default function Navbar() {
           TOP BANNER
       ========================================================== */}
       <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-violet-900 text-white">
-        <div className="mx-auto w-full max-w-7xl px-3 py-2 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-1.5 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
+        <div className="mx-auto w-full max-w-7xl px-3 py-1.5 sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-1 text-center text-[10px] leading-tight sm:flex-row sm:items-center sm:justify-between sm:text-left sm:text-[11px]">
             {/* Portal Notice */}
             <div className="flex min-w-0 items-center justify-center gap-2 sm:justify-start">
               
@@ -46,7 +46,7 @@ export default function Navbar() {
             </div>
 
             {/* Hall Information */}
-            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 text-[9px] font-medium text-indigo-100 sm:justify-end sm:text-[11px]">
+            <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-0.5 font-medium text-indigo-100 sm:justify-end">
               <span>Barangay Hall: Mon–Fri, 8:00 AM – 5:00 PM</span>
 
               <span className="hidden md:inline text-indigo-300">|</span>
@@ -63,7 +63,7 @@ export default function Navbar() {
           MAIN NAVBAR
       ========================================================== */}
       <div className="mx-auto w-full max-w-7xl px-3 sm:px-6 lg:px-8">
-        <div className="flex min-h-[76px] items-center justify-between gap-2 py-3 sm:min-h-[84px] sm:gap-4">
+        <div className="flex min-h-[64px] items-center justify-between gap-2 py-2 sm:min-h-[68px] sm:gap-4 sm:py-2.5">
           {/* =====================================================
               LOGO & BRANDING
           ====================================================== */}
@@ -73,23 +73,23 @@ export default function Navbar() {
             className="group flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3.5"
           >
             {/* Logo */}
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 text-white shadow-md shadow-indigo-200 transition-transform duration-200 group-hover:scale-105 sm:h-12 sm:w-12">
-              <Building2 className="h-5 w-5 stroke-[2.2] sm:h-7 sm:w-7" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 text-white shadow-md shadow-indigo-200 transition-transform duration-200 group-hover:scale-105 sm:h-11 sm:w-11">
+              <Building2 className="h-5 w-5 stroke-[2.2] sm:h-6 sm:w-6" />
             </div>
 
             {/* Text */}
             <div className="min-w-0 flex-1">
               <div className="mb-0.5 flex items-center">
-                <span className="inline-block max-w-full truncate rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-indigo-700 sm:px-2 sm:text-[10px] sm:tracking-wider">
+                <span className="inline-block max-w-full truncate rounded-md border border-indigo-100 bg-indigo-50 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-indigo-700 sm:px-2 sm:text-[9px] sm:tracking-wider">
                   Republic of the Philippines
                 </span>
               </div>
 
-              <h1 className="truncate text-[15px] font-bold leading-tight tracking-tight text-slate-900 transition-colors group-hover:text-indigo-700 sm:text-lg md:text-xl">
+              <h1 className="truncate text-[14px] font-bold leading-tight tracking-tight text-slate-900 transition-colors group-hover:text-indigo-700 sm:text-base md:text-lg">
                 Barangay Poblacion North
               </h1>
 
-              <p className="truncate text-[9px] font-medium leading-tight text-slate-500 sm:text-xs">
+              <p className="truncate text-[8px] font-medium leading-tight text-slate-500 sm:text-[11px]">
                 Municipality of Polanco, Zamboanga del Norte
               </p>
             </div>

@@ -435,16 +435,20 @@ export default function ComplaintsPage() {
 
       setUploadProgress(0);
 
-      const cloudName =
-        process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-      const uploadPreset =
-        process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+      const configResponse = await fetch("/api/cloudinary/config", {
+        cache: "no-store",
+      });
+      const cloudinaryConfig = (await configResponse.json()) as {
+        cloudName?: string;
+        uploadPreset?: string;
+        message?: string;
+      };
 
-      if (!cloudName || !uploadPreset) {
-        throw new Error(
-          "Cloudinary upload is not configured."
-        );
+      if (!configResponse.ok || !cloudinaryConfig.cloudName || !cloudinaryConfig.uploadPreset) {
+        throw new Error(cloudinaryConfig.message || "Cloudinary upload is not configured.");
       }
+
+      const { cloudName, uploadPreset } = cloudinaryConfig;
 
       const formData = new FormData();
       formData.append(
