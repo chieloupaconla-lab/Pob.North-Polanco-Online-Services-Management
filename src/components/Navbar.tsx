@@ -51,7 +51,7 @@ export default function Navbar() {
 
               <span className="hidden md:inline text-indigo-300">|</span>
 
-              <span className="hidden sm:inline font-semibold text-amber-300">
+              <span className="font-semibold text-amber-300">
                 No Login Required for Residents
               </span>
             </div>

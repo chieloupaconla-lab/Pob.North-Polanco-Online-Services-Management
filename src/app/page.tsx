@@ -1,5 +1,4 @@
 import React from "react";
-import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { 
@@ -9,16 +8,8 @@ import {
   ClockCheck, 
   ShieldCheck, 
   UserCheck, 
-  MapPin, 
-  Phone, 
-  ArrowRight,
-  Info,
   CheckCircle2,
   FileCheck,
-  Scale,
-  Users,
-  Search,
-  ClipboardList
 } from "lucide-react";
 
 export default function Home() {
@@ -64,11 +55,11 @@ export default function Home() {
       <Navbar />
 
       {/* HERO SECTION */}
-      <section className="relative bg-gradient-to-br from-indigo-950 via-indigo-900 to-violet-950 text-white overflow-hidden py-16 lg:py-20 border-b border-indigo-800">
+      <section className="relative overflow-hidden border-b border-indigo-800 bg-gradient-to-br from-indigo-950 via-indigo-900 to-violet-950 py-14 text-white sm:py-16 lg:py-20">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:32px_32px]"></div>
         
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-">
-          <div className="max-w-3xl space-y-6 text-center sm:text-left">
+        <div className="relative mx-auto flex min-h-[330px] max-w-7xl items-center px-4 sm:px-6 lg:min-h-[400px] lg:px-8">
+          <div className="max-w-3xl space-y-5 text-left sm:space-y-6">
             <div className="inline-flex items-center gap-2 bg-indigo-800/80 border border-indigo-700 px-3.5 py-1.5 rounded-full text-xs font-semibold text-indigo-200">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               Integrated Public Services Portal
@@ -82,45 +73,37 @@ export default function Home() {
               Serving the community of Barangay Poblacion North, Municipality of Polanco, Zamboanga del Norte. Access barangay documents, report community concerns, apply for equipment borrowing, and track service status conveniently online.
             </p>
 
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-4 pt-20">
-              
-              
-            </div>
           </div>
         </div>
       </section>
 
       {/* RESIDENCY NOTICE BANNER */}
-      <section className="bg-amber-50 border-y border-amber-200/90 py-5">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col md:flex-row items-start md:items-center gap-3.5 text-amber-950">
-            <div className="p-2.5 bg-amber-100 text-amber-900 rounded-xl shrink-0">
+      <section className="border-y border-amber-200/90 bg-amber-50 py-4 sm:py-5">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-start gap-3.5 text-amber-950 md:items-center">
+            <div className="shrink-0 rounded-xl bg-amber-100 p-2.5 text-amber-900">
               <UserCheck className="w-5 h-5" />
             </div>
-           <div className="w-full">
-  <div className="w-full rounded-xl bg-amber-50 px-5 py-4">
-    <div className="text-xs sm:text-sm leading-relaxed">
-      <p className="font-extrabold text-amber-850 mb-1">
-        Important Residency Policy Notice:
-      </p>
+            <div className="min-w-0 text-xs leading-relaxed sm:text-sm">
+              <p className="mb-1 font-extrabold text-amber-950">
+                Important Residency Policy Notice:
+              </p>
 
-      <p className="text-amber-900">
-        This public portal is strictly intended for residents of{" "}
-        <strong>Barangay Poblacion North, Polanco</strong>. All
-        submissions are subject to validation by authorized barangay
-        personnel before processing or issuance. No resident account
-        creation is required.
-      </p>
-    </div>
-  </div>
-</div>
+              <p className="text-amber-900">
+                This public portal is strictly intended for residents of{" "}
+                <strong>Barangay Poblacion North, Polanco</strong>. All
+                submissions are subject to validation by authorized barangay
+                personnel before processing or issuance. No resident account
+                creation is required.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
       {/* SERVICE CARDS SECTION */}
-      <section id="services" className="py-16 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-20">
-        <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
+      <section id="services" className="mx-auto max-w-7xl scroll-mt-20 px-4 py-10 sm:px-6 sm:py-12 lg:px-8 lg:py-14">
+        <div className="mx-auto mb-8 max-w-2xl space-y-2 text-center sm:mb-10">
           <div className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full uppercase tracking-wider">
             Barangay Services
           </div>
@@ -133,11 +116,11 @@ export default function Home() {
         </div>
 
         {/* 4 Core Service Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
           
           {/* Card 1: Request a Document */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-indigo-300 hover:shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden group">
-            <div className="p-6 space-y-4">
+             <div className="space-y-4 p-5 sm:p-6">
               <div className="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-colors">
                 <FileText className="w-6 h-6" />
               </div>
@@ -154,14 +137,14 @@ export default function Home() {
                 <div>• Purpose & Valid Proof Details</div>
               </div>
             </div>
-            <div className="px-6 pb-6 pt-2">
+             <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
               
             </div>
           </div>
 
           {/* Card 2: Report a Facility Problem */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-violet-300 hover:shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden group">
-            <div className="p-6 space-y-4">
+             <div className="space-y-4 p-5 sm:p-6">
               <div className="w-12 h-12 rounded-xl bg-violet-100 text-violet-700 flex items-center justify-center group-hover:bg-violet-600 group-hover:text-white transition-colors">
                 <AlertTriangle className="w-6 h-6" />
               </div>
@@ -178,14 +161,14 @@ export default function Home() {
                 <div>• Contact Info & Optional Photo</div>
               </div>
             </div>
-            <div className="px-6 pb-6 pt-2">
+             <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
              
             </div>
           </div>
 
           {/* Card 3: Borrow Equipment */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-emerald-300 hover:shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden group">
-            <div className="p-6 space-y-4">
+             <div className="space-y-4 p-5 sm:p-6">
               <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
                 <Package className="w-6 h-6" />
               </div>
@@ -202,14 +185,14 @@ export default function Home() {
                 <div>• Agreement to Penalty Policies</div>
               </div>
             </div>
-            <div className="px-6 pb-6 pt-2">
+             <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
               
             </div>
           </div>
 
           {/* Card 4: Check Request Status */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs hover:border-amber-300 hover:shadow-lg transition-all duration-300 flex flex-col justify-between overflow-hidden group">
-            <div className="p-6 space-y-4">
+             <div className="space-y-4 p-5 sm:p-6">
               <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-colors">
                 <ClockCheck className="w-6 h-6" />
               </div>
@@ -225,7 +208,7 @@ export default function Home() {
                 <div>• In-Person Validation at Barangay Hall</div>
               </div>
             </div>
-            <div className="px-6 pb-6 pt-2">
+             <div className="px-5 pb-5 pt-1 sm:px-6 sm:pb-6">
              
             </div>
           </div>
