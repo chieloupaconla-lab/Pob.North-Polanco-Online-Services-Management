@@ -1583,9 +1583,9 @@ try {
 
                     {/* Desktop */}
 
-                    <div className="hidden overflow-x-auto lg:block">
+                    <div className="hidden overflow-x-auto xl:block">
 
-                      <table className="w-full">
+                      <table className="w-full min-w-[900px]">
 
                         <thead className="border-b border-slate-100 bg-slate-50">
 
@@ -1749,7 +1749,7 @@ try {
 
                     {/* Mobile */}
 
-                    <div className="divide-y divide-slate-100 lg:hidden">
+                    <div className="divide-y divide-slate-100 xl:hidden">
 
                       {filteredRequests.map(
 

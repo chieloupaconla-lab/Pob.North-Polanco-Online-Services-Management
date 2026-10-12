@@ -1206,11 +1206,11 @@ function AdminComplaintsContent() {
                 DESKTOP TABLE
             ================================================== */}
 
-            <div className="mt-6 hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:block">
+            <div className="mt-6 hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm xl:block">
 
-              <div className="w-full overflow-hidden">
+              <div className="w-full">
 
-                <table className="w-full table-fixed">
+                <table className="w-full min-w-[980px] table-fixed">
                   <colgroup>
                     <col className="w-[4%]" />
                     <col className="w-[21%]" />
@@ -1481,7 +1481,7 @@ function AdminComplaintsContent() {
                 MOBILE CARDS
             ================================================== */}
 
-            <div className="mt-6 space-y-4 lg:hidden">
+            <div className="mt-6 space-y-4 xl:hidden">
 
               {filteredComplaints.map(
                 (complaint) => (

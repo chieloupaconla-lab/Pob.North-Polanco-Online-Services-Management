@@ -413,8 +413,8 @@ function AdminNotificationsContent() {
             </div>
           ) : (
             <>
-              <div className="hidden overflow-x-auto lg:block">
-                <table className="w-full text-left">
+              <div className="hidden overflow-x-auto xl:block">
+                <table className="w-full min-w-[900px] text-left">
                   <thead className="border-b border-slate-100 bg-slate-50">
                     <tr>
                       <th className="px-5 py-4 text-xs font-bold uppercase tracking-wider text-slate-400">Notification</th>
@@ -451,7 +451,7 @@ function AdminNotificationsContent() {
                 </table>
               </div>
 
-              <div className="divide-y divide-slate-100 lg:hidden">
+              <div className="divide-y divide-slate-100 xl:hidden">
                 {filteredNotifications.map((notification) => {
                   const Icon = getIcon(notification.type);
                   return (

@@ -87,7 +87,9 @@ export default function MyRequestsList() {
             No requests match the selected filters.
           </div>
         ) : (
-          <div className="overflow-x-auto -mx-5 sm:mx-0">
+          <>
+            <p className="mb-3 text-[11px] text-slate-500 sm:hidden">Swipe horizontally to view all request details.</p>
+            <div className="overflow-x-auto -mx-5 sm:mx-0">
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-100 text-[#6B7280] font-semibold uppercase text-[10px] tracking-wider bg-slate-50/50">
@@ -126,7 +128,8 @@ export default function MyRequestsList() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
 

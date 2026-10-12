@@ -46,6 +46,8 @@ export default function RecentRequests({
         )}
       </div>
 
+      <p className="text-[11px] text-slate-500 sm:hidden">Swipe horizontally to view all request details.</p>
+
       <div className="overflow-x-auto -mx-5 sm:mx-0">
         <table className="w-full text-left text-xs">
           <thead>

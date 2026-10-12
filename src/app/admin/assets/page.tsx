@@ -959,8 +959,8 @@ function AdminAssetsContent() {
             ) : (
               <>
                 {/* Desktop */}
-                <div className="hidden overflow-x-auto lg:block">
-                  <table className="w-full text-left">
+                <div className="hidden overflow-x-auto xl:block">
+                  <table className="w-full min-w-[760px] text-left">
                     <thead className="bg-violet-50/70">
                       <tr>
                         <th className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-slate-500"><span className="sr-only">Select</span></th>
@@ -1057,7 +1057,7 @@ function AdminAssetsContent() {
                 </div>
 
                 {/* Mobile */}
-                <div className="divide-y divide-slate-100 lg:hidden">
+                <div className="divide-y divide-slate-100 xl:hidden">
                   {filteredRequests.map(
                     (request) => (
                       <button
