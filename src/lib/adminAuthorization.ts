@@ -11,9 +11,10 @@ import {
   getFirestore,
   type Firestore,
 } from "firebase-admin/firestore";
-
-const PEM_HEADER = "-----BEGIN PRIVATE KEY-----";
-const PEM_FOOTER = "-----END PRIVATE KEY-----";
+import {
+  getPrivateKeyDiagnostics,
+  normalizePrivateKey,
+} from "@/lib/firebaseAdminConfig";
 const FIREBASE_EMULATOR_PROJECT_ID = "e-barangay-system-427d0";
 
 const useFirebaseEmulators =
@@ -49,47 +50,11 @@ function configureFirebaseEmulators(): void {
 }
 
 
-function normalizePrivateKey(value: string): string {
-  let normalized = value
-    .replace(/\\n/g, "\n")
-    .trim();
-
-  if (normalized.startsWith('"') && normalized.endsWith('"')) {
-    normalized = normalized.slice(1, -1).trim();
-  }
-
-  if (
-    !normalized.startsWith(PEM_HEADER) ||
-    !normalized.endsWith(PEM_FOOTER)
-  ) {
-    throw new Error(
-      "Firebase Admin private key is malformed. Check FIREBASE_ADMIN_PRIVATE_KEY."
-    );
-  }
-
-  return normalized;
-}
-
-
-function logPrivateKeyDiagnostics(
-  rawValue: string,
-  normalizedValue?: string
-): void {
+function logPrivateKeyDiagnostics(rawValue: string): void {
   if (process.env.NODE_ENV !== "development") return;
 
   // Do not log the private key itself.
-  console.info("Firebase Admin private key diagnostics.", {
-    present: rawValue.length > 0,
-    length: rawValue.length,
-    containsLiteralEscapedNewline: rawValue.includes("\\n"),
-    containsActualNewline: rawValue.includes("\n"),
-    startsWithPemHeader: rawValue.trim().startsWith(PEM_HEADER),
-    endsWithPemFooter: rawValue.trim().endsWith(PEM_FOOTER),
-    normalizedStartsWithPemHeader:
-      normalizedValue?.startsWith(PEM_HEADER) ?? false,
-    normalizedEndsWithPemFooter:
-      normalizedValue?.endsWith(PEM_FOOTER) ?? false,
-  });
+  console.info("Firebase Admin private key diagnostics.", getPrivateKeyDiagnostics(rawValue));
 }
 
 function firebaseAdminConfigPresent(): boolean {
@@ -135,7 +100,7 @@ function getOrInitializeFirebaseAdminApp(): App {
 
   try {
     normalizedPrivateKey = normalizePrivateKey(privateKey);
-    logPrivateKeyDiagnostics(privateKey, normalizedPrivateKey);
+    logPrivateKeyDiagnostics(privateKey);
   } catch (error) {
     logPrivateKeyDiagnostics(privateKey);
     throw error;

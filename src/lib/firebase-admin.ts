@@ -3,6 +3,7 @@ import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { getAuth } from "firebase-admin/auth";
+import { normalizePrivateKey } from "@/lib/firebaseAdminConfig";
 
 const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
@@ -32,7 +33,7 @@ const firebaseAdminApp =
           credential: cert({
             projectId: projectId!,
             clientEmail: clientEmail!,
-            privateKey: privateKey!.replace(/\\n/g, "\n"),
+            privateKey: normalizePrivateKey(privateKey!),
           }),
         });
 

@@ -9,6 +9,26 @@ import {
 } from "@/lib/residentVerification";
 import { getFirebaseFailureDetails, isFirebaseServiceUnavailable } from "@/lib/firebaseErrors";
 import { isTrustedAdminProfile } from "@/lib/adminAuthorization";
+import { normalizePrivateKey } from "@/lib/firebaseAdminConfig";
+
+const TEST_KEY_BODY = "A".repeat(160);
+const TEST_KEY = `-----BEGIN PRIVATE KEY-----\n${TEST_KEY_BODY}\n-----END PRIVATE KEY-----`;
+
+test("normalizes PEM keys with actual newlines and CRLF line endings", () => {
+  assert.equal(normalizePrivateKey(TEST_KEY.replace(/\n/g, "\r\n")), TEST_KEY);
+});
+
+test("normalizes PEM keys with escaped newlines and surrounding quotes", () => {
+  const escaped = `  "${TEST_KEY.replace(/\n/g, "\\n")}  "  `;
+  assert.equal(normalizePrivateKey(escaped), TEST_KEY);
+});
+
+test("rejects malformed, incomplete, and truncated PEM values", () => {
+  assert.throws(() => normalizePrivateKey("not-a-private-key"));
+  assert.throws(() => normalizePrivateKey(TEST_KEY.replace("-----END PRIVATE KEY-----", "")));
+  assert.throws(() => normalizePrivateKey(TEST_KEY.replace(TEST_KEY_BODY, "short")));
+  assert.throws(() => normalizePrivateKey(`"${TEST_KEY}`));
+});
 
 test("matches standard names case-insensitively with whitespace normalization", () => {
   assert.equal(matchesResidentNameParts("  juan   dela cruz santos ", "Santos, Juan, Dela Cruz"), true);
