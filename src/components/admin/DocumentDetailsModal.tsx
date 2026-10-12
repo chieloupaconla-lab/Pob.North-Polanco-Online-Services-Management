@@ -46,17 +46,19 @@ export default function DocumentDetailsModal({
   const [successMsg, setSuccessMsg] = useState("");
 
   useEffect(() => {
-    setCurrentRequest(request);
+    queueMicrotask(() => setCurrentRequest(request));
   }, [request]);
 
   useEffect(() => {
     if (currentRequest) {
-      setAdminNotes(currentRequest.adminNotes || "");
-      setNotesEditing(false);
-      setConfirmAction(null);
-      setRejectReason("");
-      setError("");
-      setSuccessMsg("");
+      queueMicrotask(() => {
+        setAdminNotes(currentRequest.adminNotes || "");
+        setNotesEditing(false);
+        setConfirmAction(null);
+        setRejectReason("");
+        setError("");
+        setSuccessMsg("");
+      });
     }
   }, [currentRequest]);
 

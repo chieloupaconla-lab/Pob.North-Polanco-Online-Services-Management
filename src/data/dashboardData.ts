@@ -1,4 +1,11 @@
-export const SERVICE_CARDS_DATA = [
+import type {
+  NotificationItem,
+  QuickLinkItem,
+  ServiceCardItem,
+  ServiceRequestItem,
+} from "@/types/dashboard";
+
+export const SERVICE_CARDS_DATA: ServiceCardItem[] = [
   {
     id: "documents",
     title: "Online Document Requests",
@@ -31,9 +38,9 @@ export const SERVICE_CARDS_DATA = [
     accentColor: "amber",
     href: "/notifications",
   },
-] as any[];
+];
 
-export const NOTIFICATIONS_DATA = [
+export const NOTIFICATIONS_DATA: NotificationItem[] = [
   {
     id: "request-status",
     title: "Request Status",
@@ -44,9 +51,9 @@ export const NOTIFICATIONS_DATA = [
     type: "info",
     href: "/notifications",
   },
-] as any[];
+];
 
-export const QUICK_LINKS_DATA = [
+export const QUICK_LINKS_DATA: QuickLinkItem[] = [
   {
     id: "directory",
     title: "Barangay Directory",
@@ -75,6 +82,6 @@ export const QUICK_LINKS_DATA = [
     href: "/",
     iconName: "faqs",
   },
-] as any[];
+];
 
-export const RECENT_REQUESTS_DATA = [] as any[];
+export const RECENT_REQUESTS_DATA: ServiceRequestItem[] = [];

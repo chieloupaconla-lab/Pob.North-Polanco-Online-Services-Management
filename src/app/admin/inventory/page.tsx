@@ -73,7 +73,7 @@ export default function EquipmentInventoryPage() {
   };
 
   useEffect(() => {
-    loadInventory();
+    void Promise.resolve().then(() => loadInventory());
   }, []);
 
   const openAddForm = () => {

@@ -288,7 +288,6 @@ export default function AdminHeader({
 
   useEffect(() => {
     if (!notificationsEnabled) {
-      setNotifications([]);
       return;
     }
 

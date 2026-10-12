@@ -39,10 +39,23 @@ type RequestData = {
   purpose: string;
   status: string;
   adminNotes: string;
-  createdAt: any;
-  updatedAt: any;
-  completedAt: any;
+  createdAt: FirestoreTimestamp | null;
+  updatedAt: FirestoreTimestamp | null;
+  completedAt: FirestoreTimestamp | null;
 };
+
+type FirestoreTimestamp = {
+  toMillis?: () => number;
+  toDate?: () => Date;
+};
+
+function asFirestoreTimestamp(value: unknown): FirestoreTimestamp | null {
+  if (!value || typeof value !== "object") return null;
+  const timestamp = value as FirestoreTimestamp;
+  return typeof timestamp.toMillis === "function" || typeof timestamp.toDate === "function"
+    ? timestamp
+    : null;
+}
 
 export default function DocumentStatusPage() {
   const [fullName, setFullName] = useState("");
@@ -97,10 +110,21 @@ export default function DocumentStatusPage() {
 
        const requests: RequestData[] = snapshot.docs
          .filter((doc) => getStoredPurok(doc.data()) === purok.trim())
-         .map((doc) => ({
-         id: doc.id,
-         ...(doc.data() as Omit<RequestData, "id">),
-         }));
+         .map((doc) => {
+           const data = doc.data();
+           return {
+             id: doc.id,
+             fullName: typeof data.fullName === "string" ? data.fullName : "",
+             purok: typeof data.purok === "string" ? data.purok : "",
+             documentType: typeof data.documentType === "string" ? data.documentType : "",
+             purpose: typeof data.purpose === "string" ? data.purpose : "",
+             status: typeof data.status === "string" ? data.status : "Pending",
+             adminNotes: typeof data.adminNotes === "string" ? data.adminNotes : "",
+             createdAt: asFirestoreTimestamp(data.createdAt),
+             updatedAt: asFirestoreTimestamp(data.updatedAt),
+             completedAt: asFirestoreTimestamp(data.completedAt),
+           };
+         });
 
        if (requests.length === 0) {
          setSearched(true);
@@ -136,10 +160,11 @@ export default function DocumentStatusPage() {
     ? getStatusIndex(request.status)
     : -1;
 
-  const formatDate = (timestamp: any) => {
+  const formatDate = (timestamp: FirestoreTimestamp | null) => {
     if (!timestamp) return "Not available";
 
     try {
+      if (!timestamp.toDate) return "Not available";
       return timestamp.toDate().toLocaleString("en-PH", {
         dateStyle: "medium",
         timeStyle: "short",

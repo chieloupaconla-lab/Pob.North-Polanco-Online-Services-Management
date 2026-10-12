@@ -26,6 +26,8 @@ export interface NotificationItem {
   timestamp: string;
   type: "success" | "info" | "warning" | "danger" | "purple";
   read: boolean;
+  message?: string;
+  href?: string;
 }
 
 export interface QuickLinkItem {
@@ -33,6 +35,7 @@ export interface QuickLinkItem {
   title: string;
   iconName: "directory" | "programs" | "equipment" | "faqs";
   href: string;
+  description?: string;
 }
 
 export interface ServiceCardItem {
@@ -40,6 +43,6 @@ export interface ServiceCardItem {
   title: string;
   description: string;
   iconName: "document" | "status" | "complaint" | "asset";
-  accentColor: "purple" | "blue" | "red" | "emerald";
+  accentColor: "purple" | "blue" | "red" | "emerald" | "indigo" | "rose" | "violet" | "amber";
   href: string;
 }
