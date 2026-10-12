@@ -1060,14 +1060,20 @@ function AdminAssetsContent() {
                 <div className="divide-y divide-slate-100 xl:hidden">
                   {filteredRequests.map(
                     (request) => (
-                      <button
+                      <article
                         key={request.id}
-                        onClick={() =>
-                          openRequest(request)
-                        }
-                        className="w-full p-5 text-left transition hover:bg-violet-50/50"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openRequest(request)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openRequest(request);
+                          }
+                        }}
+                        className="w-full p-5 text-left transition hover:bg-violet-50/50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-violet-500"
                       >
-                        {!showArchived && <input type="checkbox" checked={selectedIds.includes(request.id)} onChange={(event) => toggleSelected(request.id, event.target.checked)} aria-label={`Select ${request.borrowerName}`} className="m-5 h-4 w-4 accent-violet-600" />}
+                        {!showArchived && <input type="checkbox" checked={selectedIds.includes(request.id)} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); toggleSelected(request.id, event.target.checked); }} aria-label={`Select ${request.borrowerName}`} className="mb-4 h-4 w-4 accent-violet-600" />}
                         <div className="flex items-start justify-between gap-4">
                           <div>
                             <p className="font-semibold text-slate-900">
@@ -1116,7 +1122,7 @@ function AdminAssetsContent() {
                           View Request
                           <ChevronRight size={16} />
                         </div>
-                      </button>
+                      </article>
                     )
                   )}
                 </div>

@@ -1497,13 +1497,13 @@ function RecentActivityItem({
 
       <div className="min-w-0 flex-1">
 
-        <p className="truncate text-sm font-semibold text-slate-800">
+        <p className="break-words text-sm font-semibold text-slate-800">
 
           {item.displayName}
 
         </p>
 
-        <p className="truncate text-xs text-slate-400">
+        <p className="break-words text-xs text-slate-400">
 
           {item.type} • {item.displayInfo}
 
