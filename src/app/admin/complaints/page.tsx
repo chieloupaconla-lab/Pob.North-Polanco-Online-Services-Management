@@ -40,7 +40,6 @@ import {
 } from "firebase/firestore";
 
 import { auth, db } from "@/lib/firebase";
-import { notifyResidentStatus } from "@/lib/notify-resident";
 import { logActivity } from "@/lib/activityLog";
 import { createAdminNotification } from "@/lib/notifications";
 import { formatNameForDisplay } from "@/lib/nameUtils";
@@ -685,30 +684,7 @@ function AdminComplaintsContent() {
         });
       }
 
-      let emailNotificationFailed = false;
-      if (selectedComplaint.status !== editStatus) {
-        const emailResult = await notifyResidentStatus({
-          recordType: "complaint",
-          title:
-            "Community Concern Status Updated",
-          requestType:
-            "Community Concern",
-          requestId:
-            selectedComplaint.id,
-          oldStatus:
-            selectedComplaint.status,
-          newStatus: editStatus,
-        });
-        if (!emailResult.success) {
-          emailNotificationFailed = true;
-          setSaveError(`Status saved, but the email notification was not sent: ${emailResult.message}`);
-        }
-      }
-
-      setSaveMessage(
-        "Changes saved successfully." +
-          (emailNotificationFailed ? " Email notification could not be sent." : "")
-      );
+      setSaveMessage("Changes saved successfully.");
 
       setSelectedComplaint(
         (previous) =>

@@ -8,14 +8,12 @@ import { getFirebaseFailureDetails, isFirebaseServiceUnavailable } from "@/lib/f
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SUBMISSION_ID_PATTERN = /^[a-zA-Z0-9_-]{20,80}$/;
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const purok = typeof body.purok === "string" ? body.purok.trim() : "";
     const documentType = typeof body.documentType === "string" ? body.documentType.trim() : "";
     const purpose = typeof body.purpose === "string" ? body.purpose.trim() : "";
@@ -23,10 +21,9 @@ export async function POST(request: Request) {
     const documentTypeId = typeof body.documentTypeId === "string" ? body.documentTypeId.trim() : "";
     const submissionId = typeof body.submissionId === "string" ? body.submissionId.trim() : "";
 
-    if (!fullName || !email || !purok || !documentType || !purpose || !submissionId) {
+    if (!fullName || !purok || !documentType || !purpose || !submissionId) {
       return NextResponse.json({ message: "Required document request fields are missing." }, { status: 400 });
     }
-    if (!EMAIL_PATTERN.test(email)) return NextResponse.json({ message: "Please enter a valid email address." }, { status: 400 });
     if (!isCurrentDocumentType(documentType)) return NextResponse.json({ message: "Please select an approved document type." }, { status: 400 });
     if (!isOfficialPurok(purok)) return NextResponse.json({ message: "Please select an official Purok." }, { status: 400 });
     if (!SUBMISSION_ID_PATTERN.test(submissionId)) return NextResponse.json({ message: "Invalid document request submission." }, { status: 400 });
@@ -45,7 +42,6 @@ export async function POST(request: Request) {
       if (!existingDocument.exists) {
         transaction.set(documentRef, {
           fullName,
-          email,
           purok,
           documentType,
           ...(contact ? { contact } : {}),

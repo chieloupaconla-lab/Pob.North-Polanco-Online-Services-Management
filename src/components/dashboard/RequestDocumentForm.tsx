@@ -11,7 +11,6 @@ import {
   Home,
   Store,
   UserCheck,
-  Mail,
 } from "lucide-react";
 
 import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
@@ -66,7 +65,6 @@ export default function RequestDocumentForm() {
 
   const [fullName, setFullName] = useState("");
   const [contact, setContact] = useState("");
-  const [email, setEmail] = useState("");
   const [purok, setPurok] = useState("");
   const [purpose, setPurpose] = useState("");
 
@@ -89,7 +87,6 @@ export default function RequestDocumentForm() {
 
     const cleanFullName = fullName.trim();
     const cleanContact = contact.trim();
-    const cleanEmail = email.trim().toLowerCase();
     const cleanPurok = purok.trim();
     const cleanPurpose = purpose.trim();
 
@@ -100,21 +97,6 @@ export default function RequestDocumentForm() {
 
     if (!cleanContact) {
       setErrorMessage("Please enter your contact number.");
-      return;
-    }
-
-    if (!cleanEmail) {
-      setErrorMessage("Please enter your email address.");
-      return;
-    }
-
-    const emailPattern =
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailPattern.test(cleanEmail)) {
-      setErrorMessage(
-        "Please enter a valid email address."
-      );
       return;
     }
 
@@ -161,7 +143,6 @@ export default function RequestDocumentForm() {
           documentTypeId: selectedDoc.id,
           fullName: cleanFullName,
           contact: cleanContact,
-          email: cleanEmail,
           purok: cleanPurok,
           purpose: cleanPurpose,
         }),
@@ -210,15 +191,9 @@ export default function RequestDocumentForm() {
 
         <div className="rounded-xl bg-[#F0EAFF]/50 border border-purple-100 p-3 text-left">
           <div className="flex items-start gap-2">
-            <Mail className="w-4 h-4 text-[#6D3FE7] shrink-0 mt-0.5" />
-
-            <p className="text-[11px] text-[#6B7280] leading-snug">
-              Status updates will be sent to{" "}
-              <strong className="text-[#17213A]">
-                {email}
-              </strong>
-              .
-            </p>
+             <p className="text-[11px] text-[#6B7280] leading-snug">
+               Track status updates through the Notifications page.
+             </p>
           </div>
         </div>
 
@@ -228,7 +203,6 @@ export default function RequestDocumentForm() {
               setSubmitted(false);
               setFullName("");
               setContact("");
-              setEmail("");
               setPurok("");
               setPurpose("");
               setSelectedId("cedula");
@@ -341,16 +315,6 @@ export default function RequestDocumentForm() {
             value={contact}
             onChange={setContact}
             placeholder="09XX XXX XXXX"
-            required
-          />
-
-          <Field
-            id="email"
-            label="Email Address"
-            type="email"
-            value={email}
-            onChange={setEmail}
-            placeholder="yourname@gmail.com"
             required
           />
 

@@ -37,7 +37,6 @@ export interface ComplaintRequest {
 export interface ComplaintFormData {
   submissionType: SubmissionType;
   fullName: string;
-  email: string;
   category: ComplaintCategory;
   customConcern?: string;
   description: string;

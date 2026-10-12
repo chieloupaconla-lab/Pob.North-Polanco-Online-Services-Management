@@ -18,7 +18,6 @@ export interface DocumentRequest {
 
 export interface DocumentRequestFormData {
   fullName: string;
-  email: string;
   purok: string;
   documentType: DocumentType;
   purpose: string;

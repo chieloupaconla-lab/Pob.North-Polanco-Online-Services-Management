@@ -976,7 +976,7 @@ export default function NotificationsPage() {
    * Example:
    * /notifications?requestId=ABC123&requestType=document
    *
-   * This allows the email button to open the
+   * This allows a direct link to open the
    * specific request directly.
    * ============================================================
    */
@@ -1334,7 +1334,7 @@ export default function NotificationsPage() {
         0
       ) {
         setError(
-          "Request not found. Please check your email link or use the manual request status lookup."
+          "Request not found. Please use the manual request status lookup."
         );
 
         setSearched(true);
@@ -1563,8 +1563,8 @@ export default function NotificationsPage() {
                 </p>
 
                 <p className="mt-1 text-sm leading-6 text-green-700">
-                  This request was opened directly
-                  from your email notification.
+                   This request was opened directly
+                   from a request link.
                 </p>
               </div>
             </div>

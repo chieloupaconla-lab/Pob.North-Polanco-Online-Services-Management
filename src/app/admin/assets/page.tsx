@@ -36,7 +36,6 @@ import { auth, db } from "@/lib/firebase";
 import AdminAuthGuard from "@/components/AdminAuthGuard";
 import AdminFeatureShell from "@/components/admin/AdminFeatureShell";
 import { getStoredPurok } from "@/lib/purokConfig";
-import { notifyResidentStatus } from "@/lib/notify-resident";
 import { logActivity } from "@/lib/activityLog";
 import { createAdminNotification } from "@/lib/notifications";
 import { formatNameForDisplay } from "@/lib/nameUtils";
@@ -523,7 +522,6 @@ function AdminAssetsContent() {
         },
       });
 
-      let emailNotificationFailed = false;
       if (selectedRequest.status !== editStatus) {
         const notificationTitle =
           editStatus === "Returned"
@@ -559,36 +557,6 @@ function AdminAssetsContent() {
         });
       }
 
-      if (
-        selectedRequest.status !==
-        editStatus
-      ) {
-        const emailResult = await notifyResidentStatus({
-          recordType: "asset",
-          title:
-            "Equipment Request Status Updated",
-          requestType:
-            editStatus === "Returned" ||
-            editStatus === "Damaged" ||
-            editStatus === "Lost"
-              ? "Equipment Return"
-              : "Equipment Borrowing",
-          requestId: selectedRequest.id,
-          oldStatus: selectedRequest.status,
-          newStatus: editStatus,
-        });
-        if (!emailResult.success) {
-          emailNotificationFailed = true;
-          console.warn("Asset status saved but resident email notification failed.", {
-            requestId: selectedRequest.id,
-            message: emailResult.message,
-          });
-        }
-      }
-
-      if (emailNotificationFailed) {
-        alert("The asset status was saved, but the resident email notification was not sent.");
-      }
       setSelectedRequest(null);
     } catch (error) {
       console.error(error);

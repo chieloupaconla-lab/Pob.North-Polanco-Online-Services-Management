@@ -10,7 +10,6 @@ import {
   FileText,
   Home,
   Loader2,
-  Mail,
   Send,
 } from "lucide-react";
 import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
@@ -19,7 +18,6 @@ import { DOCUMENT_TYPES, isCurrentDocumentType } from "@/config/documentTypes";
 
 type FormData = {
   fullName: string;
-  email: string;
   purok: string;
   documentType: string;
   purpose: string;
@@ -28,7 +26,6 @@ type FormData = {
 export default function DocumentsPage() {
   const [formData, setFormData] = useState<FormData>({
     fullName: "",
-    email: "",
     purok: "",
     documentType: "",
     purpose: "",
@@ -61,7 +58,6 @@ export default function DocumentsPage() {
     setErrorMessage("");
 
     const cleanFullName = formData.fullName.trim();
-    const cleanEmail = formData.email.trim().toLowerCase();
     const cleanPurok = formData.purok.trim();
     const cleanDocumentType =
       formData.documentType.trim();
@@ -69,7 +65,6 @@ export default function DocumentsPage() {
 
     if (
       !cleanFullName ||
-      !cleanEmail ||
       !cleanPurok ||
       !cleanDocumentType ||
       !cleanPurpose
@@ -90,16 +85,6 @@ export default function DocumentsPage() {
       return;
     }
 
-    const emailPattern =
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-    if (!emailPattern.test(cleanEmail)) {
-      setErrorMessage(
-        "Please enter a valid Gmail or email address."
-      );
-      return;
-    }
-
     if (verificationStatus !== "verified") {
       setErrorMessage("Please verify your resident information before submitting.");
       return;
@@ -114,7 +99,6 @@ export default function DocumentsPage() {
         body: JSON.stringify({
           submissionId: submissionIdRef.current,
           fullName: cleanFullName,
-          email: cleanEmail,
           purok: cleanPurok,
           documentType: cleanDocumentType,
           purpose: cleanPurpose,
@@ -139,7 +123,6 @@ export default function DocumentsPage() {
   const handleSubmitAnother = () => {
     setFormData({
       fullName: "",
-      email: "",
        purok: "",
       documentType: "",
       purpose: "",
@@ -213,28 +196,6 @@ export default function DocumentsPage() {
                       Barangay personnel will review your
                       request. Please make sure the
                       information you submitted is correct.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Email Notification */}
-              <div className="mt-6 rounded-2xl border border-purple-200 bg-purple-50 p-5">
-                <div className="flex items-start gap-3">
-                  <Mail className="mt-0.5 h-5 w-5 shrink-0 text-purple-700" />
-
-                  <div>
-                    <h2 className="font-semibold text-purple-900">
-                      Email notifications enabled
-                    </h2>
-
-                    <p className="mt-1 text-sm leading-6 text-purple-800">
-                      Status updates for your request will
-                      be sent to:
-                    </p>
-
-                    <p className="mt-1 font-semibold text-purple-900 break-all">
-                      {formData.email}
                     </p>
                   </div>
                 </div>

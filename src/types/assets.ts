@@ -43,7 +43,6 @@ export interface AssetBorrowRequest {
 
 export interface AssetBorrowFormData {
   borrowerName: string;
-  email: string;
   borrowerContact: string;
   borrowerPurok: string;
   asset: AssetType;

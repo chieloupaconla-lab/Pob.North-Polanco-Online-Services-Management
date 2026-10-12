@@ -35,7 +35,6 @@ export default function AssetsPage() {
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     borrowerName: "",
-    email: "",
     borrowerContactNumber: "",
     purok: "",
     assetName: "",
@@ -107,7 +106,6 @@ export default function AssetsPage() {
 
     const borrower = formData.borrowerName.trim().toLowerCase();
     const witness = formData.witnessName.trim().toLowerCase();
-    const email = formData.email.trim().toLowerCase();
 
     if (borrower === witness) {
       setError(
@@ -162,7 +160,6 @@ export default function AssetsPage() {
       const requestRef = await addDoc(collection(db, "assets"), {
         // Borrower information
         borrowerName: formData.borrowerName.trim(),
-        email,
         borrowerContactNumber: formData.borrowerContactNumber.trim(),
          purok: formData.purok.trim(),
 
@@ -232,7 +229,6 @@ export default function AssetsPage() {
 
       setFormData({
         borrowerName: "",
-        email: "",
         borrowerContactNumber: "",
          purok: "",
         assetName: "",

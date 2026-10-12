@@ -41,7 +41,6 @@ type SubmissionType = "Anonymous" | "Provide My Name";
 type FormDataType = {
   submissionType: SubmissionType;
   fullName: string;
-  email: string;
   purok: string;
   category: OfficialComplaintCategory;
   description: string;
@@ -217,7 +216,6 @@ export default function ComplaintsPage() {
 
       fullName: "",
 
-      email: "",
 
       purok: "",
 
@@ -677,9 +675,6 @@ export default function ComplaintsPage() {
     const cleanName =
       formData.fullName.trim();
 
-    const cleanEmail =
-      formData.email.trim().toLowerCase();
-
     const cleanPurok = formData.purok.trim();
 
     const cleanDescription =
@@ -783,8 +778,6 @@ export default function ComplaintsPage() {
               "Anonymous"
                 ? ""
                 : cleanName,
-
-            email: cleanEmail,
 
              purok:
               formData.submissionType ===
@@ -944,7 +937,6 @@ export default function ComplaintsPage() {
 
         fullName: "",
 
-        email: "",
 
         purok: "",
 
