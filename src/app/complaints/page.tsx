@@ -20,9 +20,7 @@ import {
 import {
   addDoc,
   collection,
-  doc,
   serverTimestamp,
-  updateDoc,
 } from "firebase/firestore";
 
 import { db } from "@/lib/firebase";
@@ -57,6 +55,27 @@ async function generateComplaintTrackingCode() {
   const result = (await response.json()) as { trackingCode?: string };
   if (!response.ok || !result.trackingCode) throw new Error("Unable to create a tracking code. Please try again.");
   return result.trackingCode;
+}
+
+async function updateComplaintEvidence(
+  complaintId: string,
+  uploadToken: string,
+  update: {
+    evidenceUploadStatus: "Uploaded" | "Failed";
+    evidenceUrl?: string;
+    evidenceFileSize?: number;
+  },
+) {
+  const response = await fetch("/api/complaints/evidence", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ complaintId, uploadToken, ...update }),
+  });
+  const result = await response.json() as { message?: string };
+
+  if (!response.ok) {
+    throw new Error(result.message || "Unable to update complaint evidence.");
+  }
 }
 
 /*
@@ -362,7 +381,8 @@ export default function ComplaintsPage() {
    */
   const uploadComplaintEvidence = async (
     complaintId: string,
-    file: File
+    file: File,
+    uploadToken: string,
   ) => {
     try {
       /*
@@ -560,25 +580,11 @@ export default function ComplaintsPage() {
        * --------------------------------
        */
 
-      await updateDoc(
-        doc(
-          db,
-          "complaints",
-          complaintId
-        ),
-        {
-          evidenceUrl,
-
-          evidenceUploadStatus:
-            "Uploaded",
-
-          evidenceFileSize:
-            compressedFile.size,
-
-          updatedAt:
-            serverTimestamp(),
-        }
-      );
+      await updateComplaintEvidence(complaintId, uploadToken, {
+        evidenceUrl,
+        evidenceUploadStatus: "Uploaded",
+        evidenceFileSize: compressedFile.size,
+      });
 
       console.log(
         "Complaint photo successfully saved."
@@ -627,20 +633,9 @@ export default function ComplaintsPage() {
        * admin can see that the upload failed.
        */
       try {
-        await updateDoc(
-          doc(
-            db,
-            "complaints",
-            complaintId
-          ),
-          {
-            evidenceUploadStatus:
-              "Failed",
-
-            updatedAt:
-              serverTimestamp(),
-          }
-        );
+        await updateComplaintEvidence(complaintId, uploadToken, {
+          evidenceUploadStatus: "Failed",
+        });
       } catch (
         updateError
       ) {
@@ -752,6 +747,7 @@ export default function ComplaintsPage() {
         "Anonymous"
           ? await generateComplaintTrackingCode()
           : "";
+      const uploadToken = crypto.randomUUID().replace(/-/g, "");
 
       /*
        * --------------------------------
@@ -807,6 +803,8 @@ export default function ComplaintsPage() {
               evidenceFile
                 ? "Uploading"
                 : "No Photo",
+
+            ...(evidenceFile ? { uploadToken } : {}),
 
             status: "Pending",
 
@@ -892,7 +890,8 @@ export default function ComplaintsPage() {
       if (evidenceFile) {
         await uploadComplaintEvidence(
           complaintRef.id,
-          evidenceFile
+          evidenceFile,
+          uploadToken
         );
 
         await logActivity({
