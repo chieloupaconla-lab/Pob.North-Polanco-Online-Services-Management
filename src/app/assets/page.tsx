@@ -1,3 +1,4 @@
+
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
@@ -19,20 +20,33 @@ import {
 import { db } from "@/lib/firebase";
 import { logActivity } from "@/lib/activityLog";
 import { createAdminNotification } from "@/lib/notifications";
-import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
+import {
+  ResidentLocationSelect,
+  ResidentVerificationPanel,
+  useResidentVerification,
+} from "@/components/resident/ResidentVerification";
 import { isOfficialPurok } from "@/lib/purokConfig";
 import {
   EquipmentInventory,
   getAvailableEquipmentInventory,
 } from "@/lib/inventoryService";
+import {
+  generateCancellationToken,
+  hashCancellationToken,
+} from "@/lib/cancellationToken";
 
 export default function AssetsPage() {
   const [inventory, setInventory] = useState<EquipmentInventory[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(true);
   const [inventoryError, setInventoryError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [submittedCancellationToken, setSubmittedCancellationToken] =
+    useState("");
+  const [cancellationTokenCopied, setCancellationTokenCopied] =
+    useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
   const [formData, setFormData] = useState({
     borrowerName: "",
     borrowerContactNumber: "",
@@ -47,7 +61,11 @@ export default function AssetsPage() {
     witnessContactNumber: "",
     penaltyAgreement: false,
   });
-  const verificationStatus = useResidentVerification(formData.borrowerName, formData.purok);
+
+  const verificationStatus = useResidentVerification(
+    formData.borrowerName,
+    formData.purok
+  );
 
   useEffect(() => {
     let active = true;
@@ -101,7 +119,6 @@ export default function AssetsPage() {
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-
     setError("");
 
     const borrower = formData.borrowerName.trim().toLowerCase();
@@ -118,7 +135,6 @@ export default function AssetsPage() {
       setError("Please select an official Purok.");
       return;
     }
-
 
     if (formData.borrowDate > formData.expectedReturnDate) {
       setError(
@@ -157,11 +173,17 @@ export default function AssetsPage() {
     setSubmitting(true);
 
     try {
+      // Generate a private cancellation token for this request.
+      // Store only its hash in Firestore.
+      const cancellationToken = generateCancellationToken();
+      const cancellationTokenHash =
+        await hashCancellationToken(cancellationToken);
+
       const requestRef = await addDoc(collection(db, "assets"), {
         // Borrower information
         borrowerName: formData.borrowerName.trim(),
         borrowerContactNumber: formData.borrowerContactNumber.trim(),
-         purok: formData.purok.trim(),
+        purok: formData.purok.trim(),
 
         // Asset information
         assetName: formData.assetName,
@@ -187,6 +209,9 @@ export default function AssetsPage() {
         // Request status
         status: "Pending",
 
+        // Private cancellation credential
+        cancellationTokenHash,
+
         // Admin information
         adminNotes: "",
 
@@ -195,6 +220,7 @@ export default function AssetsPage() {
         updatedAt: serverTimestamp(),
       });
 
+      // Preserve the existing activity log.
       await logActivity({
         action: "EQUIPMENT_BORROW_REQUESTED",
         category: "Equipment",
@@ -212,6 +238,7 @@ export default function AssetsPage() {
         },
       });
 
+      // Preserve the existing admin notification.
       await createAdminNotification({
         title: "New Equipment Borrowing Request",
         message: `${formData.borrowerName.trim()} requested to borrow barangay equipment.`,
@@ -225,12 +252,15 @@ export default function AssetsPage() {
         },
       });
 
+      // Display the original token once on the success screen.
+      setSubmittedCancellationToken(cancellationToken);
+      setCancellationTokenCopied(false);
       setSubmitted(true);
 
       setFormData({
         borrowerName: "",
         borrowerContactNumber: "",
-         purok: "",
+        purok: "",
         assetName: "",
         quantity: "1",
         purpose: "",
@@ -281,9 +311,45 @@ export default function AssetsPage() {
             </h1>
 
             <p className="mx-auto mt-4 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">
-              Your asset borrowing request has been successfully
-              submitted to Barangay Poblacion North.
+              Your asset borrowing request has been successfully submitted
+              to Barangay Poblacion North.
             </p>
+
+            {/* Private Cancellation Token */}
+            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-left">
+              <h2 className="font-bold text-amber-900">
+                Your Private Cancellation Token
+              </h2>
+
+              <p className="mt-2 text-sm leading-6 text-amber-800">
+                Save this token somewhere safe. You will need it to cancel
+                this request while its status is Pending. It cannot be
+                recovered if lost. Do not share this token with other people.
+              </p>
+
+              <code className="mt-3 block break-all rounded-lg bg-white p-3 text-sm text-slate-800">
+                {submittedCancellationToken}
+              </code>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(
+                      submittedCancellationToken
+                    );
+                    setCancellationTokenCopied(true);
+                  } catch {
+                    setCancellationTokenCopied(false);
+                  }
+                }}
+                className="mt-3 rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800"
+              >
+                {cancellationTokenCopied
+                  ? "Copied"
+                  : "Copy Cancellation Token"}
+              </button>
+            </div>
 
             <div className="mt-6 rounded-2xl border border-violet-100 bg-violet-50 p-5 text-left">
               <div className="flex gap-3">
@@ -298,10 +364,10 @@ export default function AssetsPage() {
                   </p>
 
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Barangay personnel will review your request,
-                    verify the information provided, and process the
-                    borrowing schedule. The barangay may contact you
-                    using the contact information you provided.
+                    Barangay personnel will review your request, verify the
+                    information provided, and process the borrowing schedule.
+                    The barangay may contact you using the contact information
+                    you provided.
                   </p>
                 </div>
               </div>
@@ -321,9 +387,9 @@ export default function AssetsPage() {
                   </p>
 
                   <p className="mt-2 text-sm leading-6 text-slate-600">
-                    You can track the progress of your equipment
-                    borrowing request and future returning status
-                    through the Notifications page.
+                    You can track the progress of your equipment borrowing
+                    request and future returning status through the
+                    Notifications page.
                   </p>
                 </div>
               </div>
@@ -338,7 +404,12 @@ export default function AssetsPage() {
             </div>
 
             <button
-              onClick={() => setSubmitted(false)}
+              type="button"
+              onClick={() => {
+                setSubmitted(false);
+                setSubmittedCancellationToken("");
+                setCancellationTokenCopied(false);
+              }}
               className="mt-4 rounded-xl border border-violet-200 bg-white px-6 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
             >
               Submit Another Request
@@ -375,13 +446,9 @@ export default function AssetsPage() {
             </div>
 
             <div>
-             
-
               <h1 className="mt-1 text-2xl font-bold sm:text-3xl">
                 Asset Borrowing and Returning
               </h1>
-
-             
             </div>
           </div>
         </section>
@@ -400,10 +467,9 @@ export default function AssetsPage() {
               </h2>
 
               <p className="mt-1 text-sm leading-6 text-amber-800">
-                This service is intended for residents of Barangay
-                Poblacion North. All borrowing requests are subject
-                to review and approval by authorized barangay
-                personnel.
+                This service is intended for residents of Barangay Poblacion
+                North. All borrowing requests are subject to review and
+                approval by authorized barangay personnel.
               </p>
             </div>
           </div>
@@ -446,8 +512,7 @@ export default function AssetsPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Contact Number{" "}
-                  <span className="text-red-500">*</span>
+                  Contact Number <span className="text-red-500">*</span>
                 </label>
 
                 <input
@@ -463,16 +528,25 @@ export default function AssetsPage() {
                 />
               </div>
 
-              
-
               <div className="sm:col-span-2">
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                   Purok{" "}
-                  <span className="text-red-500">*</span>
+                  Purok <span className="text-red-500">*</span>
                 </label>
 
-                 <ResidentLocationSelect id="assetPurok" value={formData.purok} onChange={(value) => setFormData((current) => ({ ...current, purok: value }))} />
-                <div className="mt-3"><ResidentVerificationPanel status={verificationStatus} /></div>
+                <ResidentLocationSelect
+                  id="assetPurok"
+                  value={formData.purok}
+                  onChange={(value) =>
+                    setFormData((current) => ({
+                      ...current,
+                      purok: value,
+                    }))
+                  }
+                />
+
+                <div className="mt-3">
+                  <ResidentVerificationPanel status={verificationStatus} />
+                </div>
               </div>
             </div>
           </section>
@@ -546,7 +620,7 @@ export default function AssetsPage() {
                     {inventoryError}
                   </p>
                 )}
-               </div>
+              </div>
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
@@ -603,8 +677,7 @@ export default function AssetsPage() {
                 </h2>
 
                 <p className="text-sm text-slate-500">
-                  Select when you plan to borrow and return the
-                  asset.
+                  Select when you plan to borrow and return the asset.
                 </p>
               </div>
             </div>
@@ -627,8 +700,7 @@ export default function AssetsPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Expected Return Date{" "}
-                  <span className="text-red-500">*</span>
+                  Expected Return Date <span className="text-red-500">*</span>
                 </label>
 
                 <input
@@ -656,8 +728,7 @@ export default function AssetsPage() {
                 </h2>
 
                 <p className="text-sm text-slate-500">
-                  The witness must be a different person from the
-                  borrower.
+                  The witness must be a different person from the borrower.
                 </p>
               </div>
             </div>
@@ -665,8 +736,7 @@ export default function AssetsPage() {
             <div className="grid gap-5 sm:grid-cols-2">
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Witness Full Name{" "}
-                  <span className="text-red-500">*</span>
+                  Witness Full Name <span className="text-red-500">*</span>
                 </label>
 
                 <input
@@ -681,8 +751,7 @@ export default function AssetsPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Relationship to Borrower{" "}
-                  <span className="text-red-500">*</span>
+                  Relationship to Borrower <span className="text-red-500">*</span>
                 </label>
 
                 <input
@@ -697,8 +766,7 @@ export default function AssetsPage() {
 
               <div className="sm:col-span-2">
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Witness Contact Number{" "}
-                  <span className="text-red-500">*</span>
+                  Witness Contact Number <span className="text-red-500">*</span>
                 </label>
 
                 <input
@@ -732,28 +800,21 @@ export default function AssetsPage() {
 
                   <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
                     <li>
-                      • Use the borrowed asset only for the stated
-                      purpose.
+                      • Use the borrowed asset only for the stated purpose.
+                    </li>
+
+                    <li>• Keep the asset safe and in good condition.</li>
+
+                    <li>• Return the asset on the agreed return date.</li>
+
+                    <li>
+                      • Damage, loss, or late return may result in applicable
+                      penalties according to barangay policy.
                     </li>
 
                     <li>
-                      • Keep the asset safe and in good condition.
-                    </li>
-
-                    <li>
-                      • Return the asset on the agreed return date.
-                    </li>
-
-                    <li>
-                      • Damage, loss, or late return may result in
-                      applicable penalties according to barangay
-                      policy.
-                    </li>
-
-                    <li>
-                      • The witness/checker may be contacted if an
-                      issue occurs involving the borrower or the
-                      borrowed asset.
+                      • The witness/checker may be contacted if an issue occurs
+                      involving the borrower or the borrowed asset.
                     </li>
                   </ul>
                 </div>
@@ -771,9 +832,9 @@ export default function AssetsPage() {
               />
 
               <span className="text-sm leading-6 text-slate-700">
-                I understand and agree to the responsibilities and
-                that applicable penalties may be imposed for damage,
-                loss, or late return of barangay-owned assets.
+                I understand and agree to the responsibilities and that
+                applicable penalties may be imposed for damage, loss, or late
+                return of barangay-owned assets.
               </span>
             </label>
           </section>
@@ -787,9 +848,7 @@ export default function AssetsPage() {
                   className="mt-0.5 shrink-0 text-red-600"
                 />
 
-                <p className="text-sm leading-6 text-red-700">
-                  {error}
-                </p>
+                <p className="text-sm leading-6 text-red-700">{error}</p>
               </div>
             </div>
           )}

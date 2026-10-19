@@ -83,6 +83,22 @@ const RETURNING_STATUSES = [
   "Returned",
 ];
 
+
+function normalizeRequestStatus(status: string) {
+  return status.trim().toLowerCase();
+}
+
+function isPendingRequest(status: string) {
+  return normalizeRequestStatus(status) === "pending";
+}
+
+function displayRequestStatus(status: string) {
+  const normalized = normalizeRequestStatus(status);
+  if (normalized === "cancelled" || normalized === "canceled") return "Cancelled";
+  if (normalized === "pending") return "Pending";
+  return status.trim();
+}
+
 function cleanResidentValue(value: string) {
   return value
     .trim()
@@ -406,6 +422,11 @@ export default function NotificationsPage() {
 
   const [trackingCode, setTrackingCode] =
     useState("");
+
+  // Inline resident cancellation state
+  const [cancellingRequestId, setCancellingRequestId] = useState<string | null>(null);
+  const [cancelMessage, setCancelMessage] = useState("");
+  const [cancelError, setCancelError] = useState("");
 
   const [requests, setRequests] =
     useState<RequestItem[]>([]);
@@ -1515,6 +1536,74 @@ export default function NotificationsPage() {
     }
   }, []);
 
+  async function handleCancelRequest(request: RequestItem) {
+    setCancelMessage("");
+    setCancelError("");
+
+    // Only a Pending request can be cancelled. The API checks this again
+    // to protect against a status change between page load and cancellation.
+    if (!isPendingRequest(request.status)) {
+      setCancelError("This request can no longer be cancelled because it is not Pending.");
+      return;
+    }
+
+    if (request.id === "anonymous-complaint" || request.type === "Equipment Returning") {
+      setCancelError("This request cannot be cancelled from this tracking view.");
+      return;
+    }
+
+    const token = window.prompt(
+      "Enter the private 64-character cancellation token you received when submitting this request."
+    )?.trim();
+
+    if (!token) return;
+    if (!/^[a-f0-9]{64}$/i.test(token)) {
+      setCancelError("The cancellation token must be 64 hexadecimal characters.");
+      return;
+    }
+
+    if (!window.confirm("Cancel this Pending request now? The barangay does not need to approve the cancellation.")) {
+      return;
+    }
+
+    const requestType =
+      request.type === "Document Request"
+        ? "document"
+        : request.type === "Complaint"
+          ? "complaint"
+          : "asset";
+    // Borrowing cards use a display suffix; the API needs the actual Firestore document ID.
+    const requestId = request.type === "Equipment Borrowing"
+      ? request.id.replace(/-borrow$/, "")
+      : request.id;
+
+    setCancellingRequestId(request.id);
+
+    try {
+      const response = await fetch("/api/requests/cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requestType, requestId, cancellationToken: token }),
+      });
+      const result = await response.json() as { success?: boolean; message?: string };
+
+      if (!response.ok || !result.success) {
+        setCancelError(result.message || "Unable to cancel this request. It may no longer be Pending.");
+        return;
+      }
+
+      const now = new Date();
+      setRequests((current) => current.map((item) =>
+        item.id === request.id ? { ...item, status: "Cancelled", updatedAt: now } : item
+      ));
+      setCancelMessage(`Your ${request.type.toLowerCase()} was cancelled successfully. The admin has been notified.`);
+    } catch {
+      setCancelError("A connection error occurred. Please try again.");
+    } finally {
+      setCancellingRequestId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-pink-50">
       {/* Header */}
@@ -1716,7 +1805,29 @@ export default function NotificationsPage() {
            
         </section>
 
+        {/* Cancellation information */}
+        <section className="mt-8 rounded-2xl border border-purple-100 bg-purple-50 p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <Info className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
+            <div>
+              <h2 className="font-semibold text-purple-900">Request Cancellation</h2>
+              <p className="mt-1 text-sm leading-6 text-purple-800">
+                You can cancel a request yourself while its status is Pending. Select Cancel Request on the request card and enter the private cancellation token you received when you submitted it. No barangay approval is needed. The button is hidden after processing begins.
+              </p>
+            </div>
+          </div>
+          {cancelError && <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{cancelError}</div>}
+          {cancelMessage && <div role="status" className="mt-4 rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">{cancelMessage}</div>}
+        </section>
+
         {/* Results */}
+
+        {(cancelError || cancelMessage) && (
+          <div className={`mt-6 rounded-xl border p-4 text-sm ${cancelError ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-800"}`} role={cancelError ? "alert" : "status"}>
+            {cancelError || cancelMessage}
+          </div>
+        )}
+
         {searched && (
           <section className="mt-8">
             <div className="mb-5 flex items-center justify-between">
@@ -1793,7 +1904,7 @@ export default function NotificationsPage() {
                               request.status
                             )}`}
                           >
-                            {request.status}
+                            {displayRequestStatus(request.status)}
                           </span>
                         </div>
                       </div>
@@ -1848,6 +1959,26 @@ export default function NotificationsPage() {
                           type={request.type}
                           status={request.status}
                         />
+
+                        {isPendingRequest(request.status) &&
+                          request.id !== "anonymous-complaint" &&
+                          request.type !== "Equipment Returning" && (
+                            <div className="mt-5 border-t border-gray-100 pt-4">
+                              <button
+                                type="button"
+                                onClick={() => void handleCancelRequest(request)}
+                                disabled={cancellingRequestId === request.id}
+                                className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {cancellingRequestId === request.id ? (
+                                  <><Loader2 className="h-4 w-4 animate-spin" /> Cancelling...</>
+                                ) : "Cancel Request"}
+                              </button>
+                              <p className="mt-2 text-xs text-gray-500">
+                                Available only while this request is Pending. Cancellation takes effect immediately after verification.
+                              </p>
+                            </div>
+                          )}
                       </div>
                     </article>
                   )

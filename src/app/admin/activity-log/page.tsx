@@ -201,14 +201,17 @@ function ActivityLogContent() {
     setError("");
 
     try {
+      // Firestore requires orderBy() before any pagination cursor.
       const constraints: QueryConstraint[] = [
         orderBy("createdAt", "desc"),
-        limit(PAGE_SIZE),
       ];
 
       if (append && lastDocument) {
-        constraints.unshift(startAfter(lastDocument));
+        constraints.push(startAfter(lastDocument));
       }
+
+      // Keep the page limit after ordering and the optional cursor.
+      constraints.push(limit(PAGE_SIZE));
 
       const snapshot = await getDocs(
         query(collection(db, "activityLogs"), ...constraints)

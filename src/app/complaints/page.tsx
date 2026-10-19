@@ -34,6 +34,11 @@ import {
   type OfficialComplaintCategory,
 } from "@/config/complaintCategories";
 
+import {
+  generateCancellationToken,
+  hashCancellationToken,
+} from "@/lib/cancellationToken";
+
 type SubmissionType = "Anonymous" | "Provide My Name";
 
 type FormDataType = {
@@ -274,6 +279,12 @@ export default function ComplaintsPage() {
     setSubmittedTrackingCode,
   ] = useState("");
   const [trackingCodeCopied, setTrackingCodeCopied] = useState(false);
+
+  const [
+    submittedCancellationToken,
+    setSubmittedCancellationToken,
+  ] = useState("");
+  const [cancellationTokenCopied, setCancellationTokenCopied] = useState(false);
 
   const [imageSize, setImageSize] =
     useState("");
@@ -747,6 +758,8 @@ export default function ComplaintsPage() {
         "Anonymous"
           ? await generateComplaintTrackingCode()
           : "";
+      const cancellationToken = generateCancellationToken();
+      const cancellationTokenHash = await hashCancellationToken(cancellationToken);
       const uploadToken = crypto.randomUUID().replace(/-/g, "");
 
       /*
@@ -807,6 +820,8 @@ export default function ComplaintsPage() {
             ...(evidenceFile ? { uploadToken } : {}),
 
             status: "Pending",
+
+            cancellationTokenHash,
 
             trackingCode,
 
@@ -933,6 +948,8 @@ export default function ComplaintsPage() {
         trackingCode
       );
       setTrackingCodeCopied(false);
+      setSubmittedCancellationToken(cancellationToken);
+      setCancellationTokenCopied(false);
 
       setFormData({
         submissionType:
@@ -1074,6 +1091,40 @@ export default function ComplaintsPage() {
 
               </div>
             )}
+
+            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-left">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100">
+                  <ShieldCheck className="h-5 w-5 text-amber-700" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-gray-900">Your Private Cancellation Token</p>
+                  <p className="mt-1 text-sm leading-6 text-gray-600">Save this token somewhere safe. You will need it to cancel this complaint while its status is still Pending. This token is shown only now, so copy it before leaving this page.</p>
+                  <p className="mt-3 break-all rounded-lg border border-amber-200 bg-white p-3 font-mono text-sm font-semibold text-gray-900">
+                    {submittedCancellationToken}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(submittedCancellationToken);
+                        setCancellationTokenCopied(true);
+                      } catch {
+                        setCancellationTokenCopied(false);
+                      }
+                    }}
+                    className="mt-3 inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy Cancellation Token
+                  </button>
+                  {cancellationTokenCopied && (
+                    <p className="mt-2 text-xs font-semibold text-green-700">Cancellation token copied.</p>
+                  )}
+                  <p className="mt-2 text-xs leading-5 text-amber-800">Do not share this token. Anyone who has it may be able to cancel this request while it is Pending.</p>
+                </div>
+              </div>
+            </div>
 
             <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-5 text-left">
 

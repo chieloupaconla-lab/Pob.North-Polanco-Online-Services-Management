@@ -7,14 +7,22 @@ import {
   ArrowLeft,
   Bell,
   CheckCircle2,
+  Copy,
   FileText,
   Home,
   Loader2,
   Send,
 } from "lucide-react";
-import { ResidentLocationSelect, ResidentVerificationPanel, useResidentVerification } from "@/components/resident/ResidentVerification";
+import {
+  ResidentLocationSelect,
+  ResidentVerificationPanel,
+  useResidentVerification,
+} from "@/components/resident/ResidentVerification";
 import { isOfficialPurok } from "@/lib/purokConfig";
-import { DOCUMENT_TYPES, isCurrentDocumentType } from "@/config/documentTypes";
+import {
+  DOCUMENT_TYPES,
+  isCurrentDocumentType,
+} from "@/config/documentTypes";
 
 type FormData = {
   fullName: string;
@@ -34,8 +42,22 @@ export default function DocumentsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const submissionIdRef = useRef(crypto.randomUUID().replace(/-/g, ""));
-  const verificationStatus = useResidentVerification(formData.fullName, formData.purok);
+  const [copiedToken, setCopiedToken] = useState(false);
+
+  const submissionIdRef = useRef(
+    crypto.randomUUID().replace(/-/g, "")
+  );
+
+  // Keep this token for the current submission so retries use
+  // the same cancellation credential.
+  const cancellationTokenRef = useRef(
+    crypto.randomUUID() + crypto.randomUUID()
+  );
+
+  const verificationStatus = useResidentVerification(
+    formData.fullName,
+    formData.purok
+  );
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -50,17 +72,13 @@ export default function DocumentsPage() {
     }));
   };
 
-  const handleSubmit = async (
-    e: FormEvent<HTMLFormElement>
-  ) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-
     setErrorMessage("");
 
     const cleanFullName = formData.fullName.trim();
     const cleanPurok = formData.purok.trim();
-    const cleanDocumentType =
-      formData.documentType.trim();
+    const cleanDocumentType = formData.documentType.trim();
     const cleanPurpose = formData.purpose.trim();
 
     if (
@@ -69,9 +87,7 @@ export default function DocumentsPage() {
       !cleanDocumentType ||
       !cleanPurpose
     ) {
-      setErrorMessage(
-        "Please complete all required fields."
-      );
+      setErrorMessage("Please complete all required fields.");
       return;
     }
 
@@ -86,7 +102,9 @@ export default function DocumentsPage() {
     }
 
     if (verificationStatus !== "verified") {
-      setErrorMessage("Please verify your resident information before submitting.");
+      setErrorMessage(
+        "Please verify your resident information before submitting."
+      );
       return;
     }
 
@@ -95,42 +113,74 @@ export default function DocumentsPage() {
 
       const response = await fetch("/api/documents", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           submissionId: submissionIdRef.current,
+          cancellationToken: cancellationTokenRef.current,
           fullName: cleanFullName,
           purok: cleanPurok,
           documentType: cleanDocumentType,
           purpose: cleanPurpose,
         }),
       });
-      const result = await response.json() as { message?: string };
-      if (!response.ok) throw new Error(result.message || "Document request submission failed.");
 
+      const result = (await response.json()) as {
+        message?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(
+          result.message || "Document request submission failed."
+        );
+      }
+
+      setCopiedToken(false);
       setSubmitted(true);
     } catch (error) {
-      console.error(
-        "Document request submission error:",
-        error
-      );
+      console.error("Document request submission error:", error);
 
-      setErrorMessage(error instanceof TypeError ? "We could not reach the request service. Please check your connection and try again." : error instanceof Error ? error.message : "We could not submit your request. Please check your internet connection and try again.");
+      setErrorMessage(
+        error instanceof TypeError
+          ? "We could not reach the request service. Please check your connection and try again."
+          : error instanceof Error
+            ? error.message
+            : "We could not submit your request. Please check your internet connection and try again."
+      );
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleCopyCancellationToken = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        cancellationTokenRef.current
+      );
+      setCopiedToken(true);
+    } catch {
+      setErrorMessage(
+        "Automatic copying is unavailable. Please select and copy the cancellation credential manually."
+      );
     }
   };
 
   const handleSubmitAnother = () => {
     setFormData({
       fullName: "",
-       purok: "",
+      purok: "",
       documentType: "",
       purpose: "",
     });
 
     setSubmitted(false);
     setErrorMessage("");
+    setCopiedToken(false);
+
     submissionIdRef.current = crypto.randomUUID().replace(/-/g, "");
+    cancellationTokenRef.current =
+      crypto.randomUUID() + crypto.randomUUID();
 
     window.scrollTo({
       top: 0,
@@ -174,8 +224,8 @@ export default function DocumentsPage() {
                   </h1>
 
                   <p className="mt-2 text-sm leading-6 text-purple-100">
-                    Your barangay document request has
-                    been successfully submitted.
+                    Your barangay document request has been
+                    successfully submitted.
                   </p>
                 </div>
               </div>
@@ -193,12 +243,53 @@ export default function DocumentsPage() {
                     </h2>
 
                     <p className="mt-1 text-sm leading-6 text-green-800">
-                      Barangay personnel will review your
-                      request. Please make sure the
-                      information you submitted is correct.
+                      Barangay personnel will review your request.
+                      Please make sure the information you submitted
+                      is correct.
                     </p>
                   </div>
                 </div>
+              </div>
+
+              {/* Cancellation Credential */}
+              <div className="mt-6 rounded-2xl border border-amber-300 bg-amber-50 p-5">
+                <h2 className="font-semibold text-amber-950">
+                  Save your cancellation credential
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-amber-900">
+                  Keep this credential somewhere safe. It will be
+                  needed to prove ownership if you want to cancel
+                  this request while its status is still Pending.
+                  It cannot be recovered if you lose it.
+                </p>
+
+                <div className="mt-4 break-all rounded-xl border border-amber-200 bg-white p-3 font-mono text-sm text-gray-900">
+                  {cancellationTokenRef.current}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyCancellationToken}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-semibold text-amber-950 transition hover:bg-amber-100"
+                >
+                  {copiedToken ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" />
+                      Credential Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4" />
+                      Copy Cancellation Credential
+                    </>
+                  )}
+                </button>
+
+                <p className="mt-3 text-xs leading-5 text-amber-900">
+                  Do not share this credential with other people.
+                  Only use it for the request you submitted.
+                </p>
               </div>
 
               {/* Notification Reminder */}
@@ -212,9 +303,8 @@ export default function DocumentsPage() {
                     </h2>
 
                     <p className="mt-1 text-sm leading-6 text-indigo-800">
-                      You can view the status of your
-                      document request anytime through the
-                      Notifications page.
+                      You can view the status of your document request
+                      through the Notifications page.
                     </p>
                   </div>
                 </div>
@@ -284,13 +374,17 @@ export default function DocumentsPage() {
               </div>
 
               <div>
-                
+                <p className="text-sm font-semibold uppercase tracking-wider text-purple-200">
+                  Barangay Poblacion North
+                </p>
 
                 <h1 className="mt-1 text-2xl font-bold">
                   Document Request
                 </h1>
 
-                
+                <p className="mt-2 text-sm leading-6 text-purple-100">
+                  Request an official barangay document online.
+                </p>
               </div>
             </div>
           </div>
@@ -308,11 +402,10 @@ export default function DocumentsPage() {
                   </h2>
 
                   <p className="mt-1 text-sm leading-6 text-purple-800">
-                    This online service is intended only
-                    for residents of Barangay Poblacion
-                    North. Your submitted information may
-                    be validated by authorized barangay
-                    personnel.
+                    This online service is intended only for residents
+                    of Barangay Poblacion North. Your submitted
+                    information may be validated by authorized
+                    barangay personnel.
                   </p>
                 </div>
               </div>
@@ -327,18 +420,14 @@ export default function DocumentsPage() {
               </div>
             )}
 
-            <form
-              onSubmit={handleSubmit}
-              className="space-y-6"
-            >
+            <form onSubmit={handleSubmit} className="space-y-6">
               {/* Full Name */}
               <div>
                 <label
                   htmlFor="fullName"
                   className="mb-2 block text-sm font-semibold text-gray-800"
                 >
-                  Full Name{" "}
-                  <span className="text-red-500">*</span>
+                  Full Name <span className="text-red-500">*</span>
                 </label>
 
                 <input
@@ -354,26 +443,32 @@ export default function DocumentsPage() {
                 />
               </div>
 
-             
-
               {/* Purok */}
               <div>
                 <label
                   htmlFor="purok"
                   className="mb-2 block text-sm font-semibold text-gray-800"
                 >
-                  Purok{" "}
-                  <span className="text-red-500">*</span>
+                  Purok <span className="text-red-500">*</span>
                 </label>
 
-                <ResidentLocationSelect id="purok" value={formData.purok} onChange={(value) => setFormData((previous) => ({ ...previous, purok: value }))} />
+                <ResidentLocationSelect
+                  id="purok"
+                  value={formData.purok}
+                  onChange={(value) =>
+                    setFormData((previous) => ({
+                      ...previous,
+                      purok: value,
+                    }))
+                  }
+                />
 
                 <ResidentVerificationPanel status={verificationStatus} />
 
                 <p className="mt-2 text-xs leading-5 text-gray-500">
-                  Please enter your location within
-                  Barangay Poblacion North. This information
-                  may be checked during validation.
+                  Please select your location within Barangay
+                  Poblacion North. This information may be checked
+                  during validation.
                 </p>
               </div>
 
@@ -383,8 +478,7 @@ export default function DocumentsPage() {
                   htmlFor="documentType"
                   className="mb-2 block text-sm font-semibold text-gray-800"
                 >
-                  Document Type{" "}
-                  <span className="text-red-500">*</span>
+                  Document Type <span className="text-red-500">*</span>
                 </label>
 
                 <select
@@ -396,15 +490,10 @@ export default function DocumentsPage() {
                   disabled={isSubmitting}
                   className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-gray-100"
                 >
-                  <option value="">
-                    Select a document
-                  </option>
+                  <option value="">Select a document</option>
 
                   {DOCUMENT_TYPES.map((document) => (
-                    <option
-                      key={document}
-                      value={document}
-                    >
+                    <option key={document} value={document}>
                       {document}
                     </option>
                   ))}
@@ -417,8 +506,7 @@ export default function DocumentsPage() {
                   htmlFor="purpose"
                   className="mb-2 block text-sm font-semibold text-gray-800"
                 >
-                  Purpose{" "}
-                  <span className="text-red-500">*</span>
+                  Purpose <span className="text-red-500">*</span>
                 </label>
 
                 <textarea
@@ -440,10 +528,9 @@ export default function DocumentsPage() {
                   <span className="font-semibold text-gray-800">
                     Important:
                   </span>{" "}
-                  Submitting this form does not
-                  automatically mean that your request is
-                  approved. Your request will first be
-                  reviewed and validated by authorized
+                  Submitting this form does not automatically mean
+                  that your request is approved. Your request will
+                  first be reviewed and validated by authorized
                   barangay personnel.
                 </p>
               </div>
@@ -451,7 +538,9 @@ export default function DocumentsPage() {
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={isSubmitting || verificationStatus !== "verified"}
+                disabled={
+                  isSubmitting || verificationStatus !== "verified"
+                }
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 px-5 py-3.5 text-sm font-semibold text-white shadow-md transition hover:from-purple-800 hover:to-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmitting ? (
@@ -475,14 +564,13 @@ export default function DocumentsPage() {
 
                 <div>
                   <p className="text-sm font-semibold text-purple-900">
-                    Track your request through
-                    Notifications
+                    Track your request through Notifications
                   </p>
 
                   <p className="mt-1 text-xs leading-5 text-purple-800">
-                    After submitting, you can use the
-                    Notifications page to view the current
-                    status of your document request.
+                    After submitting, you can use the Notifications
+                    page to view the current status of your document
+                    request.
                   </p>
 
                   <Link

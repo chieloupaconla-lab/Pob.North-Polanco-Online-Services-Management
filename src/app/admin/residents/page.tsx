@@ -993,6 +993,35 @@ actions={
 
         {error && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
 
+       
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-slate-900">
+                Resident Verification Status
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {verificationReady === true
+                  ? "Resident verification is prepared."
+                  : verificationReady === false
+                    ? "Resident verification is not ready."
+                    : "Verification status has not been confirmed yet."}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Status: {verificationMigrationStatus.replaceAll("-", " ")}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshVerificationStatus()}
+              className="rounded-xl border border-violet-200 px-4 py-2 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+            >
+              Refresh Status
+            </button>
+          </div>
+        </section>
+
+
         {invalidVerificationResidents.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h2 className="text-sm font-bold text-amber-900">Invalid Verification Records</h2><p className="mt-1 text-xs text-amber-800">Diagnostic output only. No resident records were changed.</p><div className="mt-3 space-y-2">{invalidVerificationResidents.map((resident) => <div key={resident.id} className="rounded-xl border border-amber-200 bg-white p-3"><p className="font-mono text-xs font-semibold text-slate-800">Document ID: {resident.id}</p><ul className="mt-2 list-disc pl-5 text-xs text-slate-600">{resident.problems.map((problem) => <li key={problem}>{problem.replaceAll("_", " ").toLowerCase()}</li>)}</ul></div>)}</div></section>}
 
 
