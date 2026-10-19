@@ -1,4 +1,3 @@
-
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { NextResponse } from "next/server";
@@ -16,33 +15,193 @@ export const dynamic = "force-dynamic";
 const SUBMISSION_ID_PATTERN = /^[a-zA-Z0-9_-]{20,80}$/;
 const CANCELLATION_TOKEN_PATTERN = /^[a-f0-9-]{64,80}$/i;
 
+const COMMON_PERSONAL_FIELDS = [
+  "dateOfBirth",
+  "age",
+  "sex",
+  "civilStatus",
+  "citizenship",
+  "contactNumber",
+] as const;
+
+const ALLOWED_FORM_FIELDS: Record<string, readonly string[]> = {
+  "Barangay Clearance": COMMON_PERSONAL_FIELDS,
+  "Certificate of Residency": [
+    ...COMMON_PERSONAL_FIELDS,
+    "lengthOfResidency",
+  ],
+  "Barangay Business Clearance": [
+    "dateOfBirth",
+    "contactNumber",
+    "residentialAddress",
+    "businessName",
+    "businessType",
+    "natureOfBusiness",
+    "businessAddress",
+    "applicationType",
+  ],
+  "Community Tax Certificate (Cedula)": [
+    "dateOfBirth",
+    "age",
+    "sex",
+    "civilStatus",
+    "citizenship",
+    "occupation",
+    "residentialAddress",
+  ],
+};
+
+const REQUIRED_FORM_FIELDS: Record<string, readonly string[]> = {
+  "Barangay Clearance": COMMON_PERSONAL_FIELDS,
+  "Certificate of Residency": [
+    ...COMMON_PERSONAL_FIELDS,
+    "lengthOfResidency",
+  ],
+  "Barangay Business Clearance": [
+    "dateOfBirth",
+    "contactNumber",
+    "residentialAddress",
+    "businessName",
+    "businessType",
+    "natureOfBusiness",
+    "businessAddress",
+    "applicationType",
+  ],
+  "Community Tax Certificate (Cedula)": [
+    "dateOfBirth",
+    "age",
+    "sex",
+    "civilStatus",
+    "citizenship",
+    "occupation",
+    "residentialAddress",
+  ],
+};
+
+function cleanFormData(
+  value: unknown,
+  documentType: string
+): Record<string, string> | null {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+
+  const input = value as Record<string, unknown>;
+  const allowedFields = ALLOWED_FORM_FIELDS[documentType];
+
+  if (!allowedFields) return null;
+
+  // Reject unexpected keys instead of storing arbitrary submitted data.
+  if (Object.keys(input).some((key) => !allowedFields.includes(key))) {
+    return null;
+  }
+
+  const result: Record<string, string> = {};
+
+  for (const key of allowedFields) {
+    const rawValue = input[key];
+
+    if (rawValue === undefined || rawValue === null) continue;
+
+    if (typeof rawValue !== "string") return null;
+
+    const cleanedValue = rawValue.trim();
+
+    if (cleanedValue.length > 500) return null;
+
+    if (cleanedValue) result[key] = cleanedValue;
+  }
+
+  for (const key of REQUIRED_FORM_FIELDS[documentType]) {
+    if (!result[key]) return null;
+  }
+
+  if (
+    result.age &&
+    (!/^\d{1,3}$/.test(result.age) ||
+      Number(result.age) < 0 ||
+      Number(result.age) > 150)
+  ) {
+    return null;
+  }
+
+  if (
+    result.dateOfBirth &&
+    (!/^\d{4}-\d{2}-\d{2}$/.test(result.dateOfBirth) ||
+      Number.isNaN(Date.parse(result.dateOfBirth)) ||
+      new Date(result.dateOfBirth).toISOString().slice(0, 10) !==
+        result.dateOfBirth ||
+      result.dateOfBirth > new Date().toISOString().slice(0, 10))
+  ) {
+    return null;
+  }
+
+  if (
+    result.sex &&
+    !["Female", "Male", "Prefer not to say"].includes(result.sex)
+  ) {
+    return null;
+  }
+
+  if (
+    result.civilStatus &&
+    !["Single", "Married", "Widowed", "Separated", "Annulled"].includes(
+      result.civilStatus
+    )
+  ) {
+    return null;
+  }
+
+  if (
+    result.applicationType &&
+    !["New", "Renewal"].includes(result.applicationType)
+  ) {
+    return null;
+  }
+
+  return result;
+}
+
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body: unknown = await request.json();
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return NextResponse.json(
+        { message: "Invalid document request data." },
+        { status: 400 }
+      );
+    }
+
+    const data = body as Record<string, unknown>;
 
     const fullName =
-      typeof body.fullName === "string" ? body.fullName.trim() : "";
+      typeof data.fullName === "string" ? data.fullName.trim() : "";
     const purok =
-      typeof body.purok === "string" ? body.purok.trim() : "";
+      typeof data.purok === "string" ? data.purok.trim() : "";
     const documentType =
-      typeof body.documentType === "string"
-        ? body.documentType.trim()
+      typeof data.documentType === "string"
+        ? data.documentType.trim()
         : "";
     const purpose =
-      typeof body.purpose === "string" ? body.purpose.trim() : "";
+      typeof data.purpose === "string" ? data.purpose.trim() : "";
     const contact =
-      typeof body.contact === "string" ? body.contact.trim() : "";
+      typeof data.contact === "string" ? data.contact.trim() : "";
     const documentTypeId =
-      typeof body.documentTypeId === "string"
-        ? body.documentTypeId.trim()
+      typeof data.documentTypeId === "string"
+        ? data.documentTypeId.trim()
         : "";
     const submissionId =
-      typeof body.submissionId === "string"
-        ? body.submissionId.trim()
+      typeof data.submissionId === "string"
+        ? data.submissionId.trim()
         : "";
     const cancellationToken =
-      typeof body.cancellationToken === "string"
-        ? body.cancellationToken.trim()
+      typeof data.cancellationToken === "string"
+        ? data.cancellationToken.trim()
         : "";
 
     if (
@@ -54,6 +213,17 @@ export async function POST(request: Request) {
     ) {
       return NextResponse.json(
         { message: "Required document request fields are missing." },
+        { status: 400 }
+      );
+    }
+
+    if (
+      fullName.length > 150 ||
+      purok.length > 100 ||
+      purpose.length > 1000
+    ) {
+      return NextResponse.json(
+        { message: "Some submitted fields are too long." },
         { status: 400 }
       );
     }
@@ -82,6 +252,18 @@ export async function POST(request: Request) {
     if (!CANCELLATION_TOKEN_PATTERN.test(cancellationToken)) {
       return NextResponse.json(
         { message: "Invalid cancellation credential." },
+        { status: 400 }
+      );
+    }
+
+    const formData = cleanFormData(data.formData, documentType);
+
+    if (!formData) {
+      return NextResponse.json(
+        {
+          message:
+            "Please complete all required fields and check the additional information for your selected document.",
+        },
         { status: 400 }
       );
     }
@@ -118,6 +300,7 @@ export async function POST(request: Request) {
           ...(contact ? { contact } : {}),
           ...(documentTypeId ? { documentTypeId } : {}),
           purpose,
+          formData,
           status: "Pending",
           adminNotes: "",
           cancellationTokenHash,

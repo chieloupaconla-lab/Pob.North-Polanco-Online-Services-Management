@@ -24,11 +24,154 @@ import {
   isCurrentDocumentType,
 } from "@/config/documentTypes";
 
+
 type FormData = {
   fullName: string;
   purok: string;
   documentType: string;
   purpose: string;
+};
+
+type AdditionalField = {
+  name: string;
+  label: string;
+  placeholder: string;
+  type?: "text" | "date" | "number" | "tel" | "select";
+  required?: boolean;
+  options?: string[];
+};
+
+const COMMON_PERSONAL_FIELDS: AdditionalField[] = [
+  {
+    name: "dateOfBirth",
+    label: "Date of Birth",
+    placeholder: "",
+    type: "date",
+    required: true,
+  },
+  {
+    name: "age",
+    label: "Age",
+    placeholder: "Enter your age",
+    type: "number",
+    required: true,
+  },
+  {
+    name: "sex",
+    label: "Sex",
+    placeholder: "Select sex",
+    type: "select",
+    options: ["Female", "Male", "Prefer not to say"],
+    required: true,
+  },
+  {
+    name: "civilStatus",
+    label: "Civil Status",
+    placeholder: "Select civil status",
+    type: "select",
+    options: ["Single", "Married", "Widowed", "Separated", "Annulled"],
+    required: true,
+  },
+  {
+    name: "citizenship",
+    label: "Citizenship",
+    placeholder: "Enter your citizenship",
+    required: true,
+  },
+  {
+    name: "contactNumber",
+    label: "Contact Number",
+    placeholder: "Enter your contact number",
+    type: "tel",
+    required: true,
+  },
+];
+
+const DOCUMENT_FIELDS: Record<string, AdditionalField[]> = {
+  "Barangay Clearance": [...COMMON_PERSONAL_FIELDS],
+
+  "Certificate of Residency": [
+    ...COMMON_PERSONAL_FIELDS,
+    {
+      name: "lengthOfResidency",
+      label: "Length of Residency",
+      placeholder: "e.g., 5 years and 3 months",
+      required: true,
+    },
+  ],
+
+  "Barangay Business Clearance": [
+    {
+      name: "dateOfBirth",
+      label: "Applicant Date of Birth",
+      placeholder: "",
+      type: "date",
+      required: true,
+    },
+    {
+      name: "contactNumber",
+      label: "Contact Number",
+      placeholder: "Enter your contact number",
+      type: "tel",
+      required: true,
+    },
+    {
+      name: "residentialAddress",
+      label: "Residential Address",
+      placeholder: "Enter your complete residential address",
+      required: true,
+    },
+    {
+      name: "businessName",
+      label: "Business Name",
+      placeholder: "Enter the business name",
+      required: true,
+    },
+    {
+      name: "businessType",
+      label: "Business Type",
+      placeholder: "e.g., Sari-sari store, food business, services",
+      required: true,
+    },
+    {
+      name: "natureOfBusiness",
+      label: "Nature of Business",
+      placeholder: "Describe the products or services offered",
+      required: true,
+    },
+    {
+      name: "businessAddress",
+      label: "Business Address",
+      placeholder: "Enter the exact business location",
+      required: true,
+    },
+    {
+      name: "applicationType",
+      label: "Application Type",
+      placeholder: "Select application type",
+      type: "select",
+      options: ["New", "Renewal"],
+      required: true,
+    },
+  ],
+
+  "Community Tax Certificate (Cedula)": [
+    ...COMMON_PERSONAL_FIELDS.filter(
+      (field) => field.name !== "contactNumber"
+    ),
+    {
+      name: "occupation",
+      label: "Occupation",
+      placeholder: "Enter your occupation",
+      required: true,
+    },
+    {
+      name: "residentialAddress",
+      label: "Residential Address",
+      placeholder: "Enter your complete residential address",
+      required: true,
+    },
+  ],
 };
 
 export default function DocumentsPage() {
@@ -38,6 +181,7 @@ export default function DocumentsPage() {
     documentType: "",
     purpose: "",
   });
+  const [additionalData, setAdditionalData] = useState<Record<string, string>>({});
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -58,6 +202,7 @@ export default function DocumentsPage() {
     formData.fullName,
     formData.purok
   );
+  const selectedFields = DOCUMENT_FIELDS[formData.documentType] ?? [];
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -67,6 +212,17 @@ export default function DocumentsPage() {
     const { name, value } = e.target;
 
     setFormData((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+
+    if (name === "documentType") {
+      setAdditionalData({});
+    }
+  };
+
+  const handleAdditionalChange = (name: string, value: string) => {
+    setAdditionalData((previous) => ({
       ...previous,
       [name]: value,
     }));
@@ -108,6 +264,37 @@ export default function DocumentsPage() {
       return;
     }
 
+    const cleanAdditionalData: Record<string, string> = {};
+    for (const field of DOCUMENT_FIELDS[cleanDocumentType] ?? []) {
+      const value = (additionalData[field.name] ?? "").trim();
+      if (field.required && !value) {
+        setErrorMessage(`Please complete the required field: ${field.label}.`);
+        return;
+      }
+      if (value) {
+        cleanAdditionalData[field.name] = value;
+      }
+    }
+
+    const dateOfBirth = cleanAdditionalData.dateOfBirth;
+    if (dateOfBirth) {
+      const birthDate = new Date(`${dateOfBirth}T00:00:00`);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (Number.isNaN(birthDate.getTime()) || birthDate > today) {
+        setErrorMessage("Please enter a valid date of birth that is not in the future.");
+        return;
+      }
+    }
+
+    if (cleanAdditionalData.age) {
+      const age = Number(cleanAdditionalData.age);
+      if (!Number.isInteger(age) || age < 0 || age > 150) {
+        setErrorMessage("Please enter a valid age between 0 and 150.");
+        return;
+      }
+    }
+
     try {
       setIsSubmitting(true);
 
@@ -123,6 +310,7 @@ export default function DocumentsPage() {
           purok: cleanPurok,
           documentType: cleanDocumentType,
           purpose: cleanPurpose,
+          formData: cleanAdditionalData,
         }),
       });
 
@@ -173,6 +361,7 @@ export default function DocumentsPage() {
       documentType: "",
       purpose: "",
     });
+    setAdditionalData({});
 
     setSubmitted(false);
     setErrorMessage("");
@@ -499,6 +688,70 @@ export default function DocumentsPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Document-specific fields */}
+              {selectedFields.length > 0 && (
+                <section className="space-y-5 rounded-2xl border border-purple-100 bg-purple-50/50 p-4 sm:p-5">
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900">
+                      Additional Information
+                    </h2>
+                    <p className="mt-1 text-sm text-gray-600">
+                      Complete the information required for your selected document.
+                    </p>
+                  </div>
+
+                  {selectedFields.map((field) => (
+                    <div key={field.name}>
+                      <label
+                        htmlFor={`additional-${field.name}`}
+                        className="mb-2 block text-sm font-semibold text-gray-800"
+                      >
+                        {field.label}{" "}
+                        {field.required && <span className="text-red-500">*</span>}
+                      </label>
+
+                      {field.type === "select" ? (
+                        <select
+                          id={`additional-${field.name}`}
+                          name={field.name}
+                          value={additionalData[field.name] ?? ""}
+                          onChange={(event) =>
+                            handleAdditionalChange(field.name, event.target.value)
+                          }
+                          required={field.required}
+                          disabled={isSubmitting}
+                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-gray-100"
+                        >
+                          <option value="">{field.placeholder}</option>
+                          {(field.options ?? []).map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          id={`additional-${field.name}`}
+                          name={field.name}
+                          type={field.type ?? "text"}
+                          value={additionalData[field.name] ?? ""}
+                          onChange={(event) =>
+                            handleAdditionalChange(field.name, event.target.value)
+                          }
+                          placeholder={field.placeholder}
+                          required={field.required}
+                          disabled={isSubmitting}
+                          min={field.type === "number" ? 0 : undefined}
+                          max={field.type === "number" ? 150 : field.type === "date" ? new Date().toISOString().slice(0, 10) : undefined}
+                          maxLength={field.type === "number" || field.type === "date" ? undefined : 200}
+                          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:cursor-not-allowed disabled:bg-gray-100"
+                        />
+                      )}
+                    </div>
+                  ))}
+                </section>
+              )}
 
               {/* Purpose */}
               <div>

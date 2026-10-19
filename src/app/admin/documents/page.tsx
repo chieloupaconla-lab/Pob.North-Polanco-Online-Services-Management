@@ -112,6 +112,9 @@ interface DocumentRequest {
 
   purpose: string;
 
+  // Additional answers entered in the resident's document-specific form.
+  formData?: Record<string, unknown>;
+
   status: DocumentStatus;
 
   adminNotes: string;
@@ -157,6 +160,34 @@ const statuses: DocumentStatus[] = [
   "Completed",
 
 ];
+
+function formatFormFieldLabel(key: string): string {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/^\s+|\s+$/g, "")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function getDisplayableFormFields(
+  formData?: Record<string, unknown>
+): Array<{ label: string; value: string }> {
+  if (!formData || typeof formData !== "object" || Array.isArray(formData)) {
+    return [];
+  }
+
+  return Object.entries(formData)
+    .filter(([key, value]) => {
+      // Only show simple form answers; do not render nested objects or arrays.
+      if (!key || value === null || value === undefined) return false;
+      if (!["string", "number", "boolean"].includes(typeof value)) return false;
+      return String(value).trim().length > 0;
+    })
+    .map(([key, value]) => ({
+      label: formatFormFieldLabel(key),
+      value: String(value),
+    }));
+}
 
 export default function AdminDocumentsPage() {
 
@@ -247,6 +278,13 @@ export default function AdminDocumentsPage() {
             documentType: value.documentType || "",
 
             purpose: value.purpose || "",
+
+            formData:
+              value.formData &&
+              typeof value.formData === "object" &&
+              !Array.isArray(value.formData)
+                ? (value.formData as Record<string, unknown>)
+                : undefined,
 
             status: value.status || "Pending",
 
@@ -373,6 +411,13 @@ export default function AdminDocumentsPage() {
           documentType: value.documentType || "",
 
           purpose: value.purpose || "",
+
+          formData:
+            value.formData &&
+            typeof value.formData === "object" &&
+            !Array.isArray(value.formData)
+              ? (value.formData as Record<string, unknown>)
+              : undefined,
 
           status: value.status || "Pending",
 
@@ -1998,6 +2043,24 @@ try {
                     </p>
 
                   </div>
+
+                  {getDisplayableFormFields(selectedRequest.formData).length > 0 && (
+                    <div className="mt-4 rounded-2xl border border-slate-200 p-4">
+                      <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                        Additional Information
+                      </p>
+                      <dl className="grid gap-4 sm:grid-cols-2">
+                        {getDisplayableFormFields(selectedRequest.formData).map((field) => (
+                          <div key={field.label} className="min-w-0">
+                            <dt className="text-xs text-slate-400">{field.label}</dt>
+                            <dd className="mt-1 break-words text-sm font-medium text-slate-800">
+                              {field.value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  )}
 
                 </div>
 
